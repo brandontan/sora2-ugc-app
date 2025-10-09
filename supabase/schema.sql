@@ -27,7 +27,7 @@ create table if not exists public.jobs (
   status text not null default 'queued',
   provider_job_id text,
   video_url text,
-  credit_cost integer not null default 15,
+  credit_cost integer not null default 5,
   created_at timestamptz not null default timezone('utc', now())
 );
 create index if not exists jobs_user_idx on public.jobs (user_id, created_at desc);

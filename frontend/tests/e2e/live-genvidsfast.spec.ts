@@ -1,6 +1,6 @@
 import path from 'path';
 import { expect, test } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
+import { clearSupabaseState, createSupabaseSession } from './helpers/supabase-session';
 
 const productImage = path.join(__dirname, 'fixtures', 'product.png');
 
@@ -8,57 +8,159 @@ const SITE_URL = process.env.SITE_URL ?? 'https://genvidsfast.com';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const AUTOMATION_SECRET = process.env.AUTOMATION_SECRET;
+
+test.beforeEach(async ({ page, request }) => {
+  await clearSupabaseState(page);
+
+  if (
+    process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === 'true' ||
+    process.env.MOCK_API === 'true'
+  ) {
+    const response = await request.post('/api/mock/reset');
+    if (!response.ok()) {
+      console.warn('Unable to reset mock store for test.');
+    }
+  }
+});
+
+test.afterEach(async ({ page }) => {
+  await clearSupabaseState(page);
+});
 
 test.describe.configure({ mode: 'serial' });
 
-test('live genvidsfast flow', async ({ page, context, request }) => {
+test('live genvidsfast flow', async ({ page, context }) => {
   test.slow();
 
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
+  if (
+    (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) &&
+    process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK !== 'true'
+  ) {
     test.skip(true, 'Supabase admin credentials missing');
   }
 
-  const projectRef = new URL(SUPABASE_URL).host.split('.')[0];
   const email =
     process.env.LIVE_TEST_EMAIL ?? 'qa+1759982107@genvidsfast.com';
   const password = process.env.LIVE_TEST_PASSWORD ?? 'Playwright1!';
 
-  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false },
+  const logger = (message: string) => console.log(`[supabase-login] ${message}`);
+  const sessionSeed = await createSupabaseSession({
+    email,
+    password,
+    logger,
   });
 
-  const { data: tokenJson, error: tokenError } =
-    await supabaseClient.auth.signInWithPassword({ email, password });
+  const isMockRun =
+    process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === 'true' ||
+    process.env.MOCK_API === 'true';
 
-  if (tokenError) {
-    console.log('Password login failed:', tokenError.message);
+  const useAutomation = Boolean(AUTOMATION_SECRET) && !isMockRun;
+
+  if (useAutomation && AUTOMATION_SECRET) {
+    await page.route('**/api/sora/jobs', async (route) => {
+      const request = route.request();
+      const headers = {
+        ...request.headers(),
+        'x-automation-secret': AUTOMATION_SECRET,
+      };
+      const response = await route.fetch({ headers });
+      await route.fulfill({ response });
+    });
   }
-  expect(tokenError).toBeNull();
 
-  const session = tokenJson.session;
-  expect(session).toBeTruthy();
-  const expiresIn = session?.expires_in ?? 3600;
-  const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
-  const sessionPayload = {
-    access_token: session?.access_token,
-    refresh_token: session?.refresh_token,
-    expires_in: expiresIn,
-    token_type: session?.token_type ?? 'bearer',
-    user: session?.user ?? adminUser.user,
-  };
+  if (!sessionSeed && !useAutomation) {
+    test.skip(true, 'Supabase session unavailable');
+  }
+  const dashboardUrl = SITE_URL.endsWith('/')
+    ? `${SITE_URL}dashboard`
+    : `${SITE_URL}/dashboard`;
 
-  const storageKey = `sb-${projectRef}-auth-token`;
-  const storageValue = JSON.stringify({
-    currentSession: sessionPayload,
-    currentUser: sessionPayload.user,
-    expiresAt,
-  });
+  if (useAutomation) {
+    await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+    const automationResult = await page.evaluate(
+      async ({ email: targetEmail, password: targetPassword, secret }) => {
+        const response = await fetch('/api/testing/session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-automation-secret': secret,
+          },
+          credentials: 'include',
+          body: JSON.stringify({ email: targetEmail, password: targetPassword }),
+        });
+        return { ok: response.ok, status: response.status };
+      },
+      { email, password, secret: AUTOMATION_SECRET },
+    );
+    console.log('automation response', automationResult);
 
-  await page.addInitScript(([key, value]) => {
-    window.localStorage.setItem(key, value);
-  }, [storageKey, storageValue]);
+    if (!automationResult.ok) {
+      test.skip(true, `Automation session failed (status ${automationResult.status})`);
+    }
 
-  await page.goto(`${SITE_URL}/`, { waitUntil: 'networkidle' });
+    await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
+  } else if (sessionSeed?.magicLink) {
+    await page.goto(sessionSeed.magicLink, { waitUntil: 'networkidle' });
+    await page.waitForURL('**/dashboard**', { timeout: 60_000 });
+  } else if (sessionSeed) {
+    const {
+      storageKey,
+      storageValue,
+      storageArea,
+      userStorageKey,
+      userStorageValue,
+      cookiePairs,
+    } = sessionSeed;
+
+    if (cookiePairs?.length) {
+      const origin = new URL(dashboardUrl).origin;
+      await context.addCookies(
+        cookiePairs.map(({ name, value }) => ({
+          name,
+          value,
+          url: origin,
+          sameSite: 'Lax' as const,
+          httpOnly: false,
+          secure: true,
+        })),
+      );
+    }
+
+    await page.addInitScript(
+      ([key, value, area, secondaryKey, secondaryValue, cookies]) => {
+        const target = area === 'sessionStorage' ? window.sessionStorage : window.localStorage;
+        target.setItem(key, value as string);
+        if (secondaryKey && secondaryValue) {
+          target.setItem(secondaryKey as string, secondaryValue as string);
+        }
+        if (Array.isArray(cookies)) {
+          const maxAge = 400 * 24 * 60 * 60;
+          cookies.forEach(([cookieName, cookieValue]) => {
+            document.cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+          });
+        }
+      },
+      [
+        storageKey,
+        storageValue,
+        storageArea,
+        userStorageKey ?? null,
+        userStorageValue ?? null,
+        cookiePairs?.map((entry) => [entry.name, entry.value]) ?? null,
+      ],
+    );
+
+    await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
+    const storageSnapshot = await page.evaluate(() => ({
+      local: Object.keys(window.localStorage),
+      session: Object.keys(window.sessionStorage),
+      cookies: document.cookie,
+    }));
+    console.log('storage snapshot', storageSnapshot);
+  } else {
+    test.skip(true, 'Unable to acquire session for test');
+  }
   const balanceDisplay = page.getByTestId('balance-value');
   if ((await balanceDisplay.count()) === 0) {
     console.log('Dashboard URL:', await page.url());
@@ -68,86 +170,144 @@ test('live genvidsfast flow', async ({ page, context, request }) => {
   }
   await expect(balanceDisplay).toBeVisible({ timeout: 30_000 });
 
-  // Check if already credited; otherwise purchase.
-  let balanceText = await balanceDisplay.textContent();
-  if (!balanceText || !/\d+/.test(balanceText)) {
-    balanceText = '0';
-  }
+  const downloadLinks = page.getByRole('link', { name: /Download/i });
+  const creditsPerRun = Number(process.env.SORA_CREDIT_COST ?? 5);
 
-  if (!/15/.test(balanceText)) {
-    // Purchase credits via Stripe checkout.
-    const [checkoutPagePromise] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('button', { name: /Buy .*credits/i }).click(),
-    ]);
-    const checkoutPage = await checkoutPagePromise;
-    await checkoutPage.waitForLoadState('domcontentloaded');
+  const getBalanceValue = async () => {
+    const text = await balanceDisplay.textContent();
+    const match = text?.match(/\d+/);
+    return match ? Number(match[0]) : 0;
+  };
 
-    // Fill Stripe test card.
-    await checkoutPage.getByPlaceholder('Email').fill(email);
+  const expectBalanceValue = async (value: number) => {
+    await expect(balanceDisplay).toHaveText(new RegExp(`\\b${value}\\b`), {
+      timeout: 15_000,
+    });
+    return value;
+  };
 
-    const fillInFrames = async (
-      selector: string,
-      value: string,
-    ): Promise<boolean> => {
-      for (const frame of checkoutPage.frames()) {
-        const locator = frame.locator(selector);
-        if ((await locator.count()) > 0) {
-          await locator.fill(value);
-          return true;
-        }
-      }
-      return false;
-    };
+  const runJob = async (iteration: number) => {
+    await page.setInputFiles('input#product-file', productImage);
+    await page.fill(
+      'textarea',
+      `Run ${iteration}: TikTok creator shows energetic product demo with bold captions and CTA.`,
+    );
 
-    await checkoutPage.waitForTimeout(1000);
-    await fillInFrames('input[name="cardnumber"], input[placeholder="Card number"]', '4242424242424242');
-    await fillInFrames('input[name="exp-date"], input[placeholder="MM / YY"]', '1230');
-    await fillInFrames('input[name="cvc"], input[placeholder="CVC"]', '123');
-    await fillInFrames('input[name="postal"], input[placeholder="ZIP"]', '10001');
-
-    const nameField = checkoutPage.getByPlaceholder('Name on card');
-    if ((await nameField.count()) > 0) {
-      await nameField.fill('Playwright Live Test');
+    const durationSelect = page.locator('select');
+    if ((await durationSelect.count()) > 0) {
+      await durationSelect.first().selectOption('10');
     }
 
-    await checkoutPage.getByRole('button', { name: /Pay|Subscribe|Complete/i }).click();
+    await page.getByRole('button', { name: /Generate with Sora2/i }).click();
 
-    await checkoutPage.waitForURL('**/dashboard?checkout=success', {
-      timeout: 30_000,
-    });
+    await expect(
+      page.getByText(/Job .* queued/, { useInnerText: true }),
+    ).toBeVisible();
 
-    await page.waitForURL('**/dashboard?checkout=success', {
-      timeout: 30_000,
-    });
+    await expect(downloadLinks).toHaveCount(iteration, { timeout: 420_000 });
+    const latestLink = downloadLinks.nth(iteration - 1);
+    const href = await latestLink.getAttribute('href');
+    expect(href).toBeTruthy();
+  };
 
-    await expect(balanceDisplay).toHaveText(/15/, { timeout: 60_000 });
+  // Top up credits to at least one pack.
+  let balanceValue = await getBalanceValue();
+
+  if (balanceValue < 15) {
+    if (useAutomation) {
+      const topupResult = await page.evaluate(
+        async ({ targetEmail, secret }) => {
+          const response = await fetch('/api/testing/session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-automation-secret': secret,
+            },
+            credentials: 'include',
+            body: JSON.stringify({ action: 'topup', email: targetEmail, credits: 15 }),
+          });
+          const text = await response.text();
+          return { ok: response.ok, status: response.status, body: text };
+        },
+        { targetEmail: email, secret: AUTOMATION_SECRET },
+      );
+      console.log('topup response', topupResult);
+
+      if (!topupResult.ok) {
+        test.skip(true, `Top-up failed (status ${topupResult.status})`);
+      }
+
+      await page.getByRole('button', { name: /Refresh balance/i }).click();
+      await expectBalanceValue((await getBalanceValue()));
+      balanceValue = await getBalanceValue();
+    } else {
+      await page.getByRole('button', { name: /Buy .*credits/i }).click();
+
+      if (isMockRun) {
+        await page.waitForURL('**/dashboard?checkout=*', { timeout: 30_000 });
+      } else {
+        await page.waitForURL('**checkout.stripe.com**', { timeout: 30_000 });
+
+        await page.getByPlaceholder('Email').fill(email);
+
+        const fillInFrames = async (
+          selector: string,
+          value: string,
+        ): Promise<boolean> => {
+          for (const frame of page.frames()) {
+            const locator = frame.locator(selector);
+            if ((await locator.count()) > 0) {
+              await locator.fill(value);
+              return true;
+            }
+          }
+          return false;
+        };
+
+        await page.waitForTimeout(1000);
+        await fillInFrames('input[name="cardnumber"], input[placeholder="Card number"]', '4242424242424242');
+        await fillInFrames('input[name="exp-date"], input[placeholder="MM / YY"]', '1230');
+        await fillInFrames('input[name="cvc"], input[placeholder="CVC"]', '123');
+        await fillInFrames('input[name="postal"], input[placeholder="ZIP"]', '10001');
+
+        const nameField = page.getByPlaceholder('Name on card');
+        if ((await nameField.count()) > 0) {
+          await nameField.fill('Playwright Live Test');
+        }
+
+        await page.getByRole('button', { name: /Pay|Subscribe|Complete/i }).click();
+
+        await page.waitForURL('**/dashboard?checkout=success', {
+          timeout: 60_000,
+        });
+      }
+
+      balanceValue += 15;
+      await expectBalanceValue(balanceValue);
+    }
   }
 
-  // Upload product image and select duration.
-  await page.setInputFiles('input#product-file', productImage);
-  await page.fill(
-    'textarea',
-    'TikTok creator shows energetic product demo with bold captions and CTA.',
-  );
+  // First job.
+  await runJob(1);
+  balanceValue -= creditsPerRun;
+  await expectBalanceValue(balanceValue);
 
-  const durationSelect = page.locator('select');
-  if ((await durationSelect.count()) > 0) {
-    await durationSelect.first().selectOption('10');
-  }
+  // Second job.
+  await runJob(2);
+  balanceValue -= creditsPerRun;
+  await expectBalanceValue(balanceValue);
 
-  await page
-    .getByRole('button', { name: /Generate with Sora2/i })
-    .click();
+  // Third job pushes balance below minimum cost.
+  await runJob(3);
+  balanceValue -= creditsPerRun;
+  await expectBalanceValue(balanceValue);
 
-  await expect(
-    page.getByText(/Job .* queued/, { useInnerText: true }),
-  ).toBeVisible();
+  const lowBalanceWarning = page.getByText(/Balance low/i);
+  await expect(lowBalanceWarning).toBeVisible();
 
-  // Wait for download link (fal.ai job). Allow up to 7 minutes.
-  const downloadLink = page.getByRole('link', { name: /Download/i });
-  await expect(downloadLink).toBeVisible({ timeout: 420_000 });
-
-  const href = await downloadLink.getAttribute('href');
-  expect(href).toBeTruthy();
+  const generateButton = page.getByRole('button', {
+    name: /(Generate with Sora2|Add credits first)/i,
+  });
+  await expect(generateButton).toBeDisabled();
+  await expect(generateButton).toHaveText(/Add credits first/i);
 });

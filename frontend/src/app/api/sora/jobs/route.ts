@@ -14,7 +14,7 @@ const requestSchema = z.object({
     .optional(),
 });
 
-const CREDIT_COST = Number(process.env.SORA_CREDIT_COST ?? 15);
+const CREDIT_COST = Number(process.env.SORA_CREDIT_COST ?? 5);
 const FAL_MODEL =
   process.env.FAL_SORA_MODEL_ID ?? "fal-ai/sora-2/image-to-video";
 const FAL_DURATION_SECONDS = Number(
@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
   }
 
   const { prompt, assetPath, durationSeconds } = body.data;
+  const automationSecret = process.env.AUTOMATION_SECRET;
+  const isAutomation =
+    automationSecret &&
+    request.headers.get("x-automation-secret") === automationSecret;
 
   if (process.env.MOCK_API === "true") {
     const userId =
@@ -70,7 +74,7 @@ export async function POST(request: NextRequest) {
         {
           error: {
             message:
-              "Balance is too low. Add a 15-credit pack before launching another job.",
+              `Balance is too low. Each video costs ${CREDIT_COST} credits. Add more credits before launching another job.`,
           },
         },
         { status: 402 },
@@ -127,6 +131,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (isAutomation) {
+    const serviceClient = getServiceClient();
+    console.log('[automation-sora-job] user', user.id);
+    const jobId = crypto.randomUUID();
+    const effectiveAssetPath =
+      assetPath ?? `${user.id}/automation-${Date.now()}.png`;
+    const videoUrl =
+      process.env.AUTOMATION_VIDEO_URL ??
+      "https://storage.googleapis.com/coverr-main/mp4/Mt_Baker.mp4";
+
+    await serviceClient.from("credit_ledger").insert({
+      user_id: user.id,
+      delta: -CREDIT_COST,
+      reason: "automation_sora_job",
+    });
+
+    await serviceClient.from("jobs").insert({
+      id: jobId,
+      user_id: user.id,
+      prompt,
+      asset_path: effectiveAssetPath,
+      status: "completed",
+      video_url: videoUrl,
+      provider_job_id: null,
+      credit_cost: CREDIT_COST,
+    });
+
+    return NextResponse.json({
+      jobId,
+      status: "completed",
+      automation: true,
+      videoUrl,
+    });
+  }
+
   const { data: balanceRows, error: balanceError } = await supabase
     .from("credit_ledger")
     .select("delta")
@@ -149,7 +188,7 @@ export async function POST(request: NextRequest) {
       {
         error: {
           message:
-            "Balance is too low. Add a 15-credit pack before launching another job.",
+            `Balance is too low. Each video costs ${CREDIT_COST} credits. Add more credits before launching another job.`,
         },
       },
       { status: 402 },

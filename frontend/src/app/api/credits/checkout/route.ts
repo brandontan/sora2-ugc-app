@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
   const token = authHeader.slice("Bearer ".length);
   const siteUrl = process.env.SITE_URL ?? "http://localhost:3000";
-  const creditDelta = Number(process.env.SORA_CREDIT_COST ?? 15);
+  const creditDelta = Number(process.env.SORA_CREDIT_PACK_SIZE ?? 15);
 
   if (process.env.MOCK_API === "true") {
     const userId =

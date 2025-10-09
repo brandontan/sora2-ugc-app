@@ -35,7 +35,7 @@ const soraResponseSchema = z.object({
 const DEFAULT_CREDIT_COST = Number(
   process.env.NEXT_PUBLIC_SORA_CREDIT_COST ??
     process.env.SORA_CREDIT_COST ??
-    15,
+    5,
 );
 
 const ENV_DURATION_OPTIONS = (process.env
@@ -63,7 +63,7 @@ export default function Dashboard() {
 
   const isLowBalance = useMemo(() => {
     if (balance === null) return false;
-    return balance < 15;
+    return balance < DEFAULT_CREDIT_COST;
   }, [balance]);
 
   useEffect(() => {
@@ -327,7 +327,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-3xl font-semibold">Credit balance</h1>
               <p className="text-sm text-white/60">
-                We stop runs if balance is below 15 credits. No surprise charges.
+                We stop runs if balance is below {DEFAULT_CREDIT_COST} credits. No surprise charges.
               </p>
             </div>
             <div className="text-right">
@@ -355,7 +355,7 @@ export default function Dashboard() {
               onClick={handleCheckout}
               className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-400"
             >
-              Buy 15-credit pack ($15)
+              Buy 15-credit pack ($15 for 3 runs)
             </button>
             <button
               type="button"
@@ -375,7 +375,7 @@ export default function Dashboard() {
           >
             <h2 className="text-xl font-semibold text-white">Launch a Sora2 job</h2>
             <p className="mt-2 text-sm text-white/60">
-              Upload one product image and describe the scene. We charge 15 credits
+              Upload one product image and describe the scene. We charge {DEFAULT_CREDIT_COST} credits
               on submission and refund automatically if Sora2 fails.
             </p>
 

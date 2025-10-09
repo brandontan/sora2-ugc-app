@@ -196,16 +196,17 @@ export default function Home() {
         >
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div className="max-w-lg space-y-3">
-              <h2 className="text-2xl font-semibold text-white">Flat $15 per video</h2>
+              <h2 className="text-2xl font-semibold text-white">Flat $5 per video</h2>
               <p className="text-sm text-white/70">
-                One Sora2 generation costs 15 credits. Each credit equals $1. We
-                debit before the run and refund automatically if the job fails.
+                Each Sora2 generation costs 5 credits. Credits are $1 each, sold in
+                $15 packs so you get three runs per checkout. We debit before the
+                run and refund automatically if the job fails.
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-6 py-5 text-right">
               <p className="text-sm text-white/60">Standard 20s ad</p>
-              <p className="text-3xl font-semibold text-white">$15</p>
-              <p className="text-xs text-white/40">Avg. margin: 80% after fees</p>
+              <p className="text-3xl font-semibold text-white">$15 pack → 3 runs</p>
+              <p className="text-xs text-white/40">Avg. gross margin: 83% at $0.40 Sora + Stripe fees</p>
             </div>
           </div>
         </section>

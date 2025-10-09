@@ -1,7 +1,7 @@
 # Agents.md
 
 ## Start Here
-- Memory MCP log: mcp/MEMORY.md
+- Memory MCP server: mcp/MEMORY.md
 - Daily handoff: HANDOFF-2025-10-09.md
 
 ## Overview
@@ -10,9 +10,9 @@
 - Automated tests use Playwright (see `frontend/tests`).
 
 ## Current Priorities
-1. Finish configuring Supabase auth so automated login works in production.
-2. Deploy Next.js frontend to production once live flow passes.
-3. Run live Stripe → Sora end-to-end test before go-live.
+1. Refresh dashboard balance after automation top-ups so Sora job button unlocks.
+2. Stabilize live Playwright flow (login → credits → Sora preview/download).
+3. Deploy Next.js frontend once the live automation run stays green end-to-end.
 
 ## Useful Paths
 - Mock/test helpers: `frontend/src/lib/`
