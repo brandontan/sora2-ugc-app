@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { useSupabase } from "@/components/providers/supabase-provider";
 
 type Job = {
@@ -93,33 +94,34 @@ export default function Dashboard() {
   );
 
   const refreshBalance = useCallback(async () => {
-    if (!supabase || !session?.user?.id) {
-      setIsFetching(false);
-      return;
-    }
+    if (!supabase) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
     setIsFetching(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
-      .from("credit_ledger")
-      .select("delta")
-      .eq("user_id", session?.user.id);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("credit_ledger")
+        .select("delta")
+        .eq("user_id", userId);
 
-    if (error || !data) {
-      setBalance(null);
-      setMessageTone("error");
-      setMessage("Could not load credits. Try again soon.");
+      if (error || !data) {
+        setBalance(null);
+        setMessageTone("error");
+        setMessage("Could not load credits. Try again soon.");
+        return;
+      }
+
+      const ledgerRows = data as Array<{ delta?: number }>;
+      const total = ledgerRows.reduce(
+        (acc, row) => acc + Number(row.delta ?? 0),
+        0,
+      );
+      setBalance(total);
+    } finally {
       setIsFetching(false);
-      return;
     }
-
-    const ledgerRows = data as Array<{ delta?: number }>;
-    const total = ledgerRows.reduce(
-      (acc, row) => acc + Number(row.delta ?? 0),
-      0,
-    );
-    setBalance(total);
-    setIsFetching(false);
-  }, [session?.user.id, supabase]);
+  }, [session?.user?.id, supabase]);
 
   const refreshJobs = useCallback(async () => {
     if (!supabase || !session?.user?.id) {
@@ -180,6 +182,40 @@ export default function Dashboard() {
     void refreshBalance();
     void refreshJobs();
   }, [session, supabase, refreshBalance, refreshJobs]);
+
+  useEffect(() => {
+    if (!supabase || !session?.user?.id) {
+      return;
+    }
+
+    const supportsRealtime =
+      typeof (supabase as SupabaseClient).channel === "function";
+    if (!supportsRealtime) {
+      return;
+    }
+
+    const client = supabase as SupabaseClient;
+    const userId = session.user.id;
+    const balanceChannel = client
+      .channel(`ledger:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "credit_ledger",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshBalance();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(balanceChannel);
+    };
+  }, [refreshBalance, session?.user?.id, supabase]);
 
   const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const candidate = event.target.files?.[0];

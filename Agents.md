@@ -10,9 +10,9 @@
 - Automated tests use Playwright (see `frontend/tests`).
 
 ## Current Priorities
-1. Refresh dashboard balance after automation top-ups so Sora job button unlocks.
-2. Stabilize live Playwright flow (login → credits → Sora preview/download).
-3. Deploy Next.js frontend once the live automation run stays green end-to-end.
+1. Verify the new realtime balance refresh in production so automation keeps the Sora button unlocked.
+2. Re-run the live Playwright flow with seeded Supabase creds to ensure credits, job queueing, and downloads stay green.
+3. Prep the Next.js deploy once the live automation passes and dashboards show accurate balances.
 
 ## Useful Paths
 - Mock/test helpers: `frontend/src/lib/`
