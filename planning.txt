@@ -1,0 +1,59 @@
+# Sora2 UGC MVP Launch Plan
+
+## Core Outcome
+Enable creators to log in, buy credits, upload one product image, describe desired UGC, and receive a Sora-2 generated video ready for download—all inside a fast flow.
+
+## Key Assumptions
+- We already have OpenAI Sora-2 API access and billing sorted.
+- Supabase handles auth + Postgres for credits ledger.
+- Stripe powers upfront credit packs (no free trial).
+- Asset storage via Supabase Storage (fallback to signed URLs if needed).
+
+## Milestones
+1. **Foundation** – Repo scaffold, env templates, Docker/dev containers, CI smoke check.
+2. **Accounts & Credits** – Supabase email/password auth, ledger tables, Stripe checkout, balance endpoint.
+3. **Generation Pipeline** – Upload endpoint saving image to storage, call Sora-2 `/videos` with prompt + image reference, poll job, save final URL.
+4. **Web App Flow** – Next.js UI: login, dashboard with balance, upload + describe wizard, progress indicator, download screen.
+5. **Compliance & Security** – Input validation, credit guard, audit logging, SAST (Auditor), rate limits.
+6. **Launch Ops** – Production configs, seed packs, docs/runbook, monitoring alerts.
+
+## Detailed Tasks
+- Scaffold monorepo layout (`backend/`, `frontend/`, `infra/`, `docs/`).
+- Write spec-kit artifacts (`specs/2025-10-08-sora2-mvp/{spec.md, plan.md, tasks.md}`).
+- Backend (Go):
+  - Supabase schema: users, ledger, jobs, assets.
+  - Auth routes (`/auth/register`, `/auth/login`, `/auth/session`).
+  - Credits service: purchase packs, charge on generation start, refund on failure.
+  - Sora service: upload image (Supabase Storage), `POST /videos` request builder, job polling worker, webhook to capture status, signed download links.
+  - REST endpoints: `/jobs/create`, `/jobs/:id`, `/credits/balance`, `/assets/:id/download`.
+- Frontend (Next.js App Router):
+  - Supabase Auth UI (magic link + password option) with credits summary banner.
+  - Dashboard with "Buy Credits" (Stripe Checkout) and "Create Video" CTA.
+  - Upload wizard: image uploader (Drag+Drop), prompt field with presets, platform selector, submit to backend, show status timeline, link to download when ready.
+  - Handle credit low state—block submission and show purchase modal.
+- Integrations:
+  - Stripe webhook to grant credits instantly after payment.
+  - Cron/queue worker to poll Sora job until video ready.
+  - Auditor `aud full` in CI.
+- Testing:
+  - Backend: Go unit tests for ledger + Sora client; integration test hitting Supabase test DB.
+  - Frontend: Playwright flow covering login → upload → mock job completion → download.
+  - Load test stub to ensure credits guard cannot be bypassed.
+- DevX:
+  - `.env.example` for backend and frontend.
+  - Makefile or npm scripts for `dev`, `test`, `lint`, `aud`.
+  - GitHub Actions: lint, test, SAST, deploy stubs.
+- Launch Checklist:
+  - Configure Supabase Storage bucket CORS.
+  - Set Stripe live keys + webhook secret.
+  - Set OpenAI Sora endpoint + key, confirm quotas.
+  - Provision Vercel (frontend) + Railway (backend) + Fly (worker) as needed.
+  - Update README with setup instructions and pricing transparency.
+
+## Next 48h Priorities
+1. Finalize schema + migrations.
+2. Implement Stripe credit purchase + balance API.
+3. Build Sora service wrapper and happy-path generation endpoint.
+4. Mock frontend flow end-to-end (fake Sora response) while backend stabilizes.
+5. Add Auditor checks + rate limiting before opening beta.
+
