@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 
 type Job = {
@@ -328,28 +329,33 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+    <div className="relative min-h-screen overflow-hidden bg-background">
+      <div className="floating-ring -left-1/3 -top-44" />
+      <div className="floating-ring right-[-30%] top-1/4" />
+      <div className="floating-ring left-1/2 bottom-[-30%]" />
+
+      <header className="relative z-30 border-b border-border/50 bg-background/70 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
           <button
             type="button"
             onClick={() => router.push("/")}
-            className="text-lg font-semibold tracking-tight"
+            className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground"
           >
+            <Sparkles className="h-5 w-5 text-primary" />
             GenVids Fast
           </button>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={handleCheckout}
-              className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/80 hover:border-white hover:text-white"
+              className="rounded-full border border-border/70 px-5 py-2 text-sm font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
             >
               Buy credits
             </button>
             <button
               type="button"
               onClick={() => supabase?.auth.signOut()}
-              className="rounded-full bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90"
             >
               Sign out
             </button>
@@ -357,46 +363,45 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-14 px-6 py-12">
-        <section className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-            <div>
-              <h1 className="text-3xl font-semibold">Credit balance</h1>
-              <p className="text-sm text-white/60">
-                We stop runs if balance is below {DEFAULT_CREDIT_COST} credits. No surprise charges.
+      <main className="relative z-20 mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-16">
+        <section className="glass-surface rounded-[32px] border border-border/60 p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                Credits overview
+              </p>
+              <h1 className="text-3xl font-semibold text-foreground">Keep the ledger honest</h1>
+              <p className="max-w-xl text-sm text-muted-foreground">
+                Stripe checkout writes to `credit_ledger`, and Supabase realtime keeps this card up to date. We block runs when balance dips below {DEFAULT_CREDIT_COST} credits.
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-white/50">Available credits</p>
-              <p
-                className="text-4xl font-semibold text-white"
-                data-testid="balance-value"
-              >
-                {balance === null ? (
-                  <span className="text-white/40">--</span>
-                ) : (
-                  balance
-                )}
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Available credits</p>
+              <p className="mt-2 text-5xl font-semibold text-foreground" data-testid="balance-value">
+                {balance === null ? <span className="text-muted-foreground/60">--</span> : balance}
               </p>
-              {isLowBalance && (
-                <p className="text-xs text-amber-300">
-                  Balance low. Add credits before launching a new job.
+              {isLowBalance ? (
+                <p className="mt-1 text-xs text-amber-300">
+                  Balance low. Top up before launching the next job.
                 </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">Each Sora2 run costs {DEFAULT_CREDIT_COST} credits.</p>
               )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleCheckout}
-              className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-400"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition hover:bg-primary/90"
             >
-              Buy 15-credit pack ($15 for 3 runs)
+              Buy 15-credit pack
+              <ArrowRight className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={refreshBalance}
-              className="rounded-full border border-white/20 px-5 py-3 text-sm text-white/70 hover:border-white disabled:cursor-not-allowed disabled:text-white/40"
+              className="inline-flex items-center gap-2 rounded-full border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/60"
               disabled={isFetching}
             >
               {isFetching ? "Refreshing…" : "Refresh balance"}
@@ -404,46 +409,48 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid gap-8 lg:grid-cols-[2fr_1fr]">
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 backdrop-blur"
-          >
-            <h2 className="text-xl font-semibold text-white">Launch a Sora2 job</h2>
-            <p className="mt-2 text-sm text-white/60">
-              Upload one product image and describe the scene. We charge {DEFAULT_CREDIT_COST} credits
-              on submission and refund automatically if Sora2 fails.
-            </p>
+        <section className="grid gap-10 lg:grid-cols-[1.8fr_1fr]">
+          <form onSubmit={handleSubmit} className="glass-surface rounded-[28px] border border-border/60 p-8">
+            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Sora2 pipeline</p>
+                <h2 className="text-2xl font-semibold text-foreground">Launch a generation</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">Charged on submit • Auto refund if job fails</p>
+            </div>
 
-            <div className="mt-6 space-y-5">
-              <label className="block text-sm text-white/70">
+            <div className="mt-8 grid gap-6">
+              <label className="text-sm text-muted-foreground">
                 Product image
-                <input
-                  id="product-file"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={handleUpload}
-                  className="mt-2 w-full rounded-2xl border border-dashed border-white/20 bg-slate-900 p-4 text-sm text-white outline-none transition hover:border-white/40 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/40"
-                />
+                <div className="mt-2 rounded-3xl border border-dashed border-border/70 bg-secondary/40 p-5">
+                  <input
+                    id="product-file"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleUpload}
+                    className="w-full cursor-pointer text-sm text-muted-foreground file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-primary-foreground file:transition file:hover:bg-primary/30"
+                  />
+                  <p className="mt-2 text-xs text-muted-foreground/80">Max 10MB • JPG/PNG/WebP</p>
+                </div>
               </label>
 
-              <label className="block text-sm text-white/70">
+              <label className="text-sm text-muted-foreground">
                 Prompt
                 <textarea
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="Example: TikTok creator shows product close-ups, upbeat voiceover, call to action in final frame."
+                  placeholder="Example: Creator unboxes product, shows 3 hero shots, ends with CTA overlay."
                   rows={4}
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-500/40"
+                  className="mt-2 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
                 />
               </label>
 
-              <label className="block text-sm text-white/70">
-                Video length
+              <label className="text-sm text-muted-foreground">
+                Video duration
                 <select
                   value={duration}
                   onChange={(event) => setDuration(Number(event.target.value))}
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-500/40"
+                  className="mt-2 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
                 >
                   {DURATION_OPTIONS.map((option) => (
                     <option key={option} value={option}>{`${option} seconds`}</option>
@@ -452,25 +459,23 @@ export default function Dashboard() {
               </label>
             </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-8 flex flex-wrap gap-3">
               <button
                 type="submit"
-                className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
                 disabled={isSubmitting || isLowBalance}
               >
-                {isLowBalance ? "Add credits first" : "Generate with Sora2"}
+                {isLowBalance ? "Add credits first" : isSubmitting ? "Queuing job…" : "Generate with Sora2"}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setPrompt("");
                   setFile(null);
-                  const uploadInput = document.getElementById(
-                    "product-file",
-                  ) as HTMLInputElement | null;
+                  const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
                   if (uploadInput) uploadInput.value = "";
                 }}
-                className="rounded-full border border-white/20 px-5 py-3 text-sm text-white/70 hover:border-white"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
               >
                 Reset
               </button>
@@ -478,8 +483,8 @@ export default function Dashboard() {
 
             {message && (
               <p
-                className={`mt-4 text-sm ${
-                  messageTone === "error" ? "text-red-400" : "text-sky-300"
+                className={`mt-5 text-sm ${
+                  messageTone === "error" ? "text-red-400" : "text-primary"
                 }`}
               >
                 {message}
@@ -487,69 +492,90 @@ export default function Dashboard() {
             )}
           </form>
 
-          <aside className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 backdrop-blur">
-            <h3 className="text-lg font-semibold text-white">Quick facts</h3>
-            <ul className="mt-4 space-y-3 text-sm text-white/60">
-              <li>• 480p output today, 720p staging later.</li>
-              <li>• Retry automatically if Sora2 times out.</li>
-              <li>• Ledger writes happen inside a single transaction.</li>
-              <li>• Signed URLs expire after 24 hours for security.</li>
+          <aside className="glass-surface rounded-[28px] border border-border/60 p-8">
+            <h3 className="text-lg font-semibold text-foreground">Runbook</h3>
+            <ul className="mt-5 space-y-4 text-sm text-muted-foreground">
+              <li>• Credit ledger writes happen inside a single transaction with the job enqueue.</li>
+              <li>
+                • Policy failures stream back as <code>status: &quot;policy_blocked&quot;</code> and trigger refunds.
+              </li>
+              <li>• Signed download URLs expire after 24h; regenerate to refresh.</li>
+              <li>• Automation secret seeds sessions for Playwright productions runs.</li>
             </ul>
-          </aside>
-        </section>
-
-        <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-white">Recent jobs</h2>
             <button
               type="button"
               onClick={refreshJobs}
-              className="text-xs text-white/60 hover:text-white"
+              className="mt-6 inline-flex items-center gap-2 rounded-full border border-border/70 px-5 py-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
             >
-              Refresh
+              Refresh jobs
             </button>
+          </aside>
+        </section>
+
+        <section className="glass-surface rounded-[28px] border border-border/60 p-8">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Activity</p>
+              <h2 className="text-2xl font-semibold text-foreground">Recent jobs</h2>
+            </div>
+            <p className="text-xs text-muted-foreground">Latest 20 runs pulled directly from Supabase.</p>
           </div>
-          <div className="mt-4 space-y-4">
+
+          <div className="mt-6 space-y-4">
             {jobs.length === 0 ? (
-              <p className="text-sm text-white/50">
-                Jobs will appear here once you start generating.
-              </p>
+              <div className="rounded-3xl border border-border/60 bg-secondary/40 p-6 text-sm text-muted-foreground">
+                No jobs yet. Launch your first Sora2 generation to populate this feed.
+              </div>
             ) : (
-              jobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="flex flex-col gap-2 rounded-2xl border border-white/5 bg-slate-950/60 p-4 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {job.prompt.slice(0, 80)}
-                      {job.prompt.length > 80 ? "…" : ""}
-                    </p>
-                    <p className="text-xs text-white/40">
-                      {new Date(job.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs uppercase tracking-widest text-white/50">
-                      {job.status}
-                    </span>
-                    {job.video_url ? (
-                      <a
-                        href={job.video_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400"
+              jobs.map((job) => {
+                const createdAt = new Date(job.created_at).toLocaleString();
+                const statusLabel = job.status.replace(/_/g, " ");
+                const isComplete = job.status === "completed" && Boolean(job.video_url);
+                return (
+                  <div
+                    key={job.id}
+                    className="flex flex-col gap-4 rounded-3xl border border-border/70 bg-secondary/30 p-6 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-foreground">
+                        {job.prompt.length > 110 ? `${job.prompt.slice(0, 110)}…` : job.prompt}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{createdAt}</p>
+                      <p className="text-xs text-muted-foreground">Credit cost: {job.credit_cost}</p>
+                    </div>
+                    <div className="flex flex-col gap-3 md:items-end">
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] ${
+                          job.status === "completed"
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : job.status === "processing"
+                              ? "bg-primary/15 text-primary"
+                              : job.status === "policy_blocked"
+                                ? "bg-red-500/15 text-red-300"
+                                : "bg-border/40 text-muted-foreground"
+                        }`}
                       >
-                        Download
-                      </a>
-                    ) : (
-                      <span className="rounded-full border border-white/10 px-4 py-2 text-xs text-white/50">
-                        Processing
+                        {statusLabel}
                       </span>
-                    )}
+                      {isComplete ? (
+                        <a
+                          href={job.video_url ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow shadow-primary/30 transition hover:bg-primary/90"
+                        >
+                          Download MP4
+                          <ArrowRight className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {job.status === "processing" ? "Sora2 is rendering…" : "Awaiting next update"}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>

@@ -4,6 +4,7 @@
 - Document frictionless Supabase login options (password user vs. service session API).
 - Prototype Playwright helpers for session seeding and cleanup.
 - Gate tests on reliable login, add retries + telemetry on failures.
+- Snapshot design: expose configurable retry ceiling + timeout jitter, emit structured telemetry map from helper, and surface skip reasons so Playwright specs can short-circuit when Supabase automation blocks access.
 
 ## Phase 2 – Credits & Economics
 - Lock in pack price ($15) and decide per-generation credit spend based on Sora2 COGS.

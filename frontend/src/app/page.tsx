@@ -1,44 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
-
-const steps = [
-  {
-    title: "Buy credits upfront",
-    body: "Pick a pack once. No subscriptions, no drip pricing.",
-  },
-  {
-    title: "Upload your product shot",
-    body: "PNG or JPG up to 10MB. We store it in Supabase Storage.",
-  },
-  {
-    title: "Describe the vibe",
-    body: "Tell Sora2 the platform, tone, and key talking points.",
-  },
-  {
-    title: "Download in minutes",
-    body: "We keep the ledger exact so you always know the balance.",
-  },
-];
+import { ChaoticVideoBackground } from "@/components/design/chaotic-video-background";
+import { WelcomeHeader } from "@/components/design/welcome-header";
 
 export default function Home() {
   const { supabase, session, loading } = useSupabase();
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
-    "idle",
-  );
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   const handleMagicLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email) return;
+    if (!email) {
+      setStatus("error");
+      setMessage("Drop an email so we can send the link.");
+      return;
+    }
     if (!supabase) {
       setStatus("error");
-      setMessage("Supabase client not ready. Refresh the page and try again.");
+      setMessage("Supabase client not ready. Refresh and try again.");
       return;
     }
     setStatus("sending");
@@ -46,8 +32,7 @@ export default function Home() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo:
-          process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL ?? undefined,
+        emailRedirectTo: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL ?? undefined,
       },
     });
     if (error) {
@@ -56,7 +41,15 @@ export default function Home() {
       return;
     }
     setStatus("sent");
-    setMessage("Check your inbox for the magic link.");
+    setMessage("Magic link sent. Check your inbox.");
+  };
+
+  const launchWorkspace = () => {
+    if (session) {
+      router.push("/dashboard");
+      return;
+    }
+    formRef.current?.requestSubmit();
   };
 
   useEffect(() => {
@@ -66,165 +59,73 @@ export default function Home() {
   }, [loading, session, router]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            GenVids Fast
-          </Link>
-          <div className="flex items-center gap-3">
-            <Link
-              href="#pricing"
-              className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/80 hover:border-white hover:text-white"
-            >
-              Credits
-            </Link>
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      <ChaoticVideoBackground />
+      <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-b from-background/70 via-background/40 to-background" />
+      <WelcomeHeader />
+
+      <main className="relative z-[3] container mx-auto flex flex-col items-center px-4 pb-24 pt-20">
+        <div className="max-w-4xl text-center">
+          <span className="inline-flex items-center justify-center gap-2 rounded-full border border-border/60 bg-background/70 px-4 py-2 text-xs uppercase tracking-[0.35em] text-muted-foreground">
+            Ultra-fast Sora2 UGC
+          </span>
+          <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
+            Product photo <span className="gradient-text">→ Sora video</span>
+          </h1>
+          <div className="mt-12 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
             <button
               type="button"
-              onClick={() => router.push("/dashboard")}
-              className="rounded-full bg-sky-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
-              disabled={loading}
+              onClick={launchWorkspace}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+              disabled={status === "sending"}
             >
-              {session ? "Open dashboard" : "Launch workspace"}
+              <Sparkles className="h-4 w-4" />
+              {session ? "Open dashboard" : "Start creating"}
+            </button>
+            <button
+              type="button"
+              onClick={() => document.getElementById("magic-link-email")?.focus()}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-border/60 px-8 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+            >
+              Email me access
             </button>
           </div>
         </div>
-      </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-20 px-6 py-16">
-        <section className="flex flex-col gap-10 md:flex-row md:items-center md:justify-between">
-          <div className="max-w-xl space-y-6">
-            <span className="inline-flex rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-white/60">
-              Sora2 product placement
-            </span>
-            <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-              Upload a product. Describe the vibe. Download UGC-ready video in
-              minutes.
-            </h1>
-            <p className="text-lg text-white/70">
-              We run every generation through Sora2, track every credit in
-              Supabase, and skip subscriptions. Pay once, know your balance,
-              ship faster.
+        <div className="relative mt-16 w-full max-w-xl">
+          <div className="absolute -inset-[2px] rounded-[30px] bg-gradient-to-br from-primary/50 via-indigo-500/30 to-fuchsia-500/20 blur-[70px]" />
+          <div className="relative glass-surface rounded-[28px] p-8 text-left shadow-2xl">
+            <h2 className="text-2xl font-semibold">Sign in instantly</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Enter your email and we’ll send a one-click sign-in link.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => router.push("/dashboard")}
-                className="rounded-full bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-                disabled={loading}
-              >
-                {session ? "Open dashboard" : "Start now"}
-              </button>
-              <a
-                href="#how-it-works"
-                className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:border-white"
-              >
-                See how it works
-              </a>
-            </div>
-          </div>
-          <div className="relative flex w-full max-w-md flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-white">
-                Sign in with a magic link
-              </h2>
-              <p className="text-sm text-white/60">
-                We use Supabase OTP. No passwords, no friction.
-              </p>
-            </div>
-            <form onSubmit={handleMagicLink} className="space-y-4">
-              <label className="space-y-2 text-sm text-white/70">
+            <form ref={formRef} onSubmit={handleMagicLink} className="mt-6 space-y-4">
+              <label className="block text-sm text-muted-foreground">
                 Email address
                 <input
+                  id="magic-link-email"
                   type="email"
                   required
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="you@brand.com"
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-500/40"
+                  className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
                 />
               </label>
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
                 disabled={status === "sending"}
               >
                 {status === "sending" ? "Sending magic link…" : "Email me a link"}
               </button>
             </form>
             {message && (
-              <p
-                className={`text-sm ${
-                  status === "error" ? "text-red-400" : "text-sky-400"
-                }`}
-              >
-                {message}
-              </p>
+              <p className={`mt-4 text-sm ${status === "error" ? "text-red-400" : "text-primary"}`}>{message}</p>
             )}
-            <p className="text-xs text-white/40">
-              By continuing you agree to our billing policy. Credits never expire
-              and are refundable until first use.
-            </p>
-          </div>
-        </section>
-
-        <section id="how-it-works" className="space-y-10">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">How it works</h2>
-            <span className="text-sm text-white/50">
-              Honest ledger. No subscription traps.
-            </span>
-          </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            {steps.map((step) => (
-              <div
-                key={step.title}
-                className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 backdrop-blur"
-              >
-                <h3 className="text-lg font-semibold text-white">
-                  {step.title}
-                </h3>
-                <p className="mt-2 text-sm text-white/60">{step.body}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section
-          id="pricing"
-          className="rounded-3xl border border-sky-500/20 bg-sky-500/10 p-8 backdrop-blur"
-        >
-          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-lg space-y-3">
-              <h2 className="text-2xl font-semibold text-white">Flat $5 per video</h2>
-              <p className="text-sm text-white/70">
-                Each Sora2 generation costs 5 credits. Credits are $1 each, sold in
-                $15 packs so you get three runs per checkout. We debit before the
-                run and refund automatically if the job fails.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-6 py-5 text-right">
-              <p className="text-sm text-white/60">Standard 20s ad</p>
-              <p className="text-3xl font-semibold text-white">$15 pack → 3 runs</p>
-              <p className="text-xs text-white/40">Avg. gross margin: 83% at $0.40 Sora + Stripe fees</p>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-white/10 py-8">
-        <div className="mx-auto flex w-full max-w-5xl flex-col items-center justify-between gap-3 px-6 text-sm text-white/40 md:flex-row">
-          <p>© {new Date().getFullYear()} GenVids Fast</p>
-          <div className="flex items-center gap-4">
-            <a href="mailto:hello@genvidsfast.com" className="hover:text-white">
-              Contact
-            </a>
-            <a href="https://status.supabase.com" className="hover:text-white">
-              Supabase status
-            </a>
           </div>
         </div>
-      </footer>
+      </main>
     </div>
   );
 }

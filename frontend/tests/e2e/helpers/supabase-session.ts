@@ -1,7 +1,9 @@
 import { Page } from '@playwright/test';
 import { createClient, type Session } from '@supabase/supabase-js';
 
-const MAX_LOGIN_ATTEMPTS = 3;
+const DEFAULT_MAX_LOGIN_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 500;
+const DEFAULT_RETRY_JITTER_MS = 250;
 
 export type SupabaseSessionSeed = {
   storageKey: string;
@@ -14,11 +16,62 @@ export type SupabaseSessionSeed = {
   magicLink?: string;
 };
 
-export async function createSupabaseSession(options?: {
+type TelemetryStage =
+  | 'mock'
+  | 'env'
+  | 'password-login'
+  | 'provision'
+  | 'magic-link';
+
+type TelemetryStatus = 'success' | 'error' | 'info' | 'skip';
+
+export type SupabaseSessionTelemetryEvent = {
+  stage: TelemetryStage;
+  status: TelemetryStatus;
+  message: string;
+  attempt?: number;
+  timestamp: number;
+};
+
+export type SupabaseSessionResult =
+  | { status: 'success'; seed: SupabaseSessionSeed; telemetry: SupabaseSessionTelemetryEvent[] }
+  | { status: 'skipped'; reason: string; telemetry: SupabaseSessionTelemetryEvent[] };
+
+export type SupabaseSessionOptions = {
   email?: string;
   password?: string;
   logger?: (message: string) => void;
-}): Promise<SupabaseSessionSeed | null> {
+  maxAttempts?: number;
+  retryDelayMs?: number;
+  retryJitterMs?: number;
+  onTelemetry?: (event: SupabaseSessionTelemetryEvent) => void;
+};
+
+export async function createSupabaseSession(
+  options: SupabaseSessionOptions = {},
+): Promise<SupabaseSessionResult> {
+  const telemetry: SupabaseSessionTelemetryEvent[] = [];
+  const log = (
+    stage: TelemetryStage,
+    status: TelemetryStatus,
+    message: string,
+    attempt?: number,
+  ) => {
+    const event: SupabaseSessionTelemetryEvent = {
+      stage,
+      status,
+      message,
+      attempt,
+      timestamp: Date.now(),
+    };
+    telemetry.push(event);
+    if (options.logger) {
+      const attemptSuffix = attempt ? ` (attempt ${attempt})` : '';
+      options.logger(`[supabase:${stage}] ${message}${attemptSuffix}`);
+    }
+    options.onTelemetry?.(event);
+  };
+
   if (process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === 'true') {
     const userId = 'mock-user-id';
     const expiresIn = 3600;
@@ -30,29 +83,67 @@ export async function createSupabaseSession(options?: {
       token_type: 'bearer',
       user: {
         id: userId,
-        email: options?.email ?? 'mock@sora2.app',
+        email: options.email ?? 'mock@sora2.app',
       },
       expires_at: expiresAt,
     } as Session;
 
+    log('mock', 'success', 'Using mock Supabase session.');
+
     return {
-      storageKey: 'mock-supabase-session',
-      storageValue: JSON.stringify(mockSession),
-      storageArea: 'sessionStorage' as const,
-      session: mockSession,
+      status: 'success',
+      seed: {
+        storageKey: 'mock-supabase-session',
+        storageValue: JSON.stringify(mockSession),
+        storageArea: 'sessionStorage',
+        session: mockSession,
+      },
+      telemetry,
     };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const email = options?.email ?? process.env.LIVE_TEST_EMAIL;
-  const password = options?.password ?? process.env.LIVE_TEST_PASSWORD;
+  const email = options.email ?? process.env.LIVE_TEST_EMAIL;
+  const password = options.password ?? process.env.LIVE_TEST_PASSWORD;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !anonKey || !email || !password) {
-    options?.logger?.('Supabase session missing required env.');
-    return null;
+    log('env', 'skip', 'Missing required Supabase env configuration.');
+    return {
+      status: 'skipped',
+      reason: 'Supabase session missing required env.',
+      telemetry,
+    };
   }
+
+  const maxAttempts = Math.max(
+    1,
+    Number.isFinite(options.maxAttempts ?? NaN)
+      ? Math.trunc(options.maxAttempts as number)
+      : DEFAULT_MAX_LOGIN_ATTEMPTS,
+  );
+  const retryDelay = Math.max(
+    0,
+    Number.isFinite(options.retryDelayMs ?? NaN)
+      ? Math.trunc(options.retryDelayMs as number)
+      : DEFAULT_RETRY_DELAY_MS,
+  );
+  const retryJitter = Math.max(
+    0,
+    Number.isFinite(options.retryJitterMs ?? NaN)
+      ? Math.trunc(options.retryJitterMs as number)
+      : DEFAULT_RETRY_JITTER_MS,
+  );
+
+  const waitWithBackoff = async (attempt: number) => {
+    const backoff = retryDelay * attempt;
+    const jitter = retryJitter > 0 ? Math.floor(Math.random() * retryJitter) : 0;
+    const totalDelay = backoff + jitter;
+    if (totalDelay > 0) {
+      await wait(totalDelay);
+    }
+  };
 
   const projectRef = new URL(url).host.split('.')[0];
   const supabase = createClient(url, anonKey, {
@@ -64,6 +155,88 @@ export async function createSupabaseSession(options?: {
         auth: { persistSession: false, autoRefreshToken: false },
       })
     : null;
+
+  const encodeBase64Url = (value: string) =>
+    Buffer.from(value, 'utf-8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+
+  const buildSessionSeed = (session: Session): SupabaseSessionSeed => {
+    const expiresIn = session.expires_in ?? 3600;
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+    const normalizedSession = {
+      ...session,
+      expires_at: session.expires_at ?? expiresAt,
+    } satisfies Session;
+
+    const storageValue = JSON.stringify({
+      currentSession: normalizedSession,
+      currentUser: normalizedSession.user,
+      expiresAt,
+    });
+    const userStorageKey = `sb-${projectRef}-auth-token-user`;
+    const userStorageValue = JSON.stringify({ user: normalizedSession.user });
+    const cookiePairs = [
+      {
+        name: `sb-${projectRef}-auth-token`,
+        value: `base64-${encodeBase64Url(storageValue)}`,
+      },
+      {
+        name: userStorageKey,
+        value: `base64-${encodeBase64Url(userStorageValue)}`,
+      },
+    ];
+
+    return {
+      storageKey: `sb-${projectRef}-auth-token`,
+      storageValue,
+      storageArea: 'localStorage',
+      session: normalizedSession,
+      userStorageKey,
+      userStorageValue,
+      cookiePairs,
+    } satisfies SupabaseSessionSeed;
+  };
+
+  const attemptPasswordLogin = async (): Promise<SupabaseSessionSeed | null> => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          log('password-login', 'error', error.message, attempt);
+          await waitWithBackoff(attempt);
+          continue;
+        }
+
+        const session = data.session;
+        if (!session) {
+          log('password-login', 'error', 'No session returned from Supabase.', attempt);
+          await waitWithBackoff(attempt);
+          continue;
+        }
+
+        const seed = buildSessionSeed(session);
+        log('password-login', 'success', 'Supabase password login succeeded.', attempt);
+        return seed;
+      } catch (cause) {
+        log('password-login', 'error', (cause as Error).message, attempt);
+        await waitWithBackoff(attempt);
+      }
+    }
+
+    log(
+      'password-login',
+      'skip',
+      `Supabase login exhausted after ${maxAttempts} attempts.`,
+    );
+    return null;
+  };
 
   const getMagicLink = async (): Promise<string | undefined> => {
     if (!adminClient) return undefined;
@@ -87,100 +260,33 @@ export async function createSupabaseSession(options?: {
         email,
         options: redirectTo ? { redirectTo } : undefined,
       });
+
       if (error) {
-        options?.logger?.(
-          `Supabase magic link error: ${error.message ?? 'unknown error'}`,
-        );
+        log('magic-link', 'error', error.message ?? 'Unknown magic link error.');
         return undefined;
       }
+
       const actionLink = (data as Record<string, unknown> | null)?.action_link as
         | string
         | undefined;
       if (actionLink) {
+        log('magic-link', 'success', 'Magic link generated.');
         return actionLink;
       }
-      options?.logger?.('Supabase magic link missing action link response.');
+
+      log('magic-link', 'error', 'Magic link response missing action link.');
     } catch (error) {
-      options?.logger?.(
-        `Supabase magic link provisioning failed: ${(error as Error).message}`,
-      );
+      log('magic-link', 'error', (error as Error).message);
     }
 
     return undefined;
   };
 
-  const attemptPasswordLogin = async () => {
-    for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt += 1) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) {
-          options?.logger?.(`Supabase login attempt ${attempt} failed: ${error.message}`);
-          await wait(attempt * 500);
-          continue;
-        }
-
-        const session = data.session;
-        if (!session) {
-          options?.logger?.(`Supabase login attempt ${attempt} returned no session.`);
-          await wait(attempt * 500);
-          continue;
-        }
-
-        const expiresIn = session.expires_in ?? 3600;
-        const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
-        const normalizedSession = {
-          ...session,
-          expires_at: session.expires_at ?? expiresAt,
-        } satisfies Session;
-
-        const storageValue = JSON.stringify({
-          currentSession: normalizedSession,
-          currentUser: normalizedSession.user,
-          expiresAt,
-        });
-        const userStorageKey = `sb-${projectRef}-auth-token-user`;
-        const userStorageValue = JSON.stringify({ user: normalizedSession.user });
-        const encodeBase64Url = (value: string) =>
-          Buffer.from(value, 'utf-8')
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/g, '');
-        const cookiePairs = [
-          {
-            name: `sb-${projectRef}-auth-token`,
-            value: `base64-${encodeBase64Url(storageValue)}`,
-          },
-          {
-            name: userStorageKey,
-            value: `base64-${encodeBase64Url(userStorageValue)}`,
-          },
-        ];
-        return {
-          storageKey: `sb-${projectRef}-auth-token`,
-          storageValue,
-          storageArea: 'localStorage' as const,
-          session: normalizedSession,
-          userStorageKey,
-          userStorageValue,
-          cookiePairs,
-        };
-      } catch (cause) {
-        options?.logger?.(
-          `Supabase login attempt ${attempt} threw error: ${(cause as Error).message}`,
-        );
-        await wait(attempt * 500);
-      }
-    }
-    return null;
-  };
-
   const provisionUser = async () => {
-    if (!adminClient) return false;
+    if (!adminClient) {
+      log('provision', 'info', 'Service role unavailable; skip provisioning.');
+      return false;
+    }
 
     try {
       const normalizedEmail = email.toLowerCase();
@@ -208,7 +314,7 @@ export async function createSupabaseSession(options?: {
         });
 
         if (created.error || !created.data?.user) {
-          throw created.error ?? new Error('Failed to create Supabase user');
+          throw created.error ?? new Error('Failed to create Supabase user.');
         }
         foundUser = { id: created.data.user.id };
       } else {
@@ -218,44 +324,56 @@ export async function createSupabaseSession(options?: {
         });
       }
 
-      options?.logger?.('Provisioned Supabase test user via service role.');
+      log('provision', 'success', 'Provisioned Supabase test user via service role.');
       return true;
     } catch (error) {
-      options?.logger?.(
-        `Supabase provisioning failed: ${(error as Error).message}`,
-      );
+      log('provision', 'error', (error as Error).message);
       return false;
     }
   };
 
+  const attachMagicLink = async (
+    seed: SupabaseSessionSeed,
+  ): Promise<SupabaseSessionSeed> => {
+    const magicLink = await getMagicLink();
+    if (magicLink) {
+      return { ...seed, magicLink } satisfies SupabaseSessionSeed;
+    }
+    return seed;
+  };
+
   const firstPass = await attemptPasswordLogin();
   if (firstPass) {
-    const magicLink = await getMagicLink();
-    return magicLink ? { ...firstPass, magicLink } : firstPass;
+    const seedWithLink = await attachMagicLink(firstPass);
+    return { status: 'success', seed: seedWithLink, telemetry };
   }
 
   if (await provisionUser()) {
     const secondPass = await attemptPasswordLogin();
     if (secondPass) {
-      const magicLink = await getMagicLink();
-      return magicLink ? { ...secondPass, magicLink } : secondPass;
+      const seedWithLink = await attachMagicLink(secondPass);
+      return { status: 'success', seed: seedWithLink, telemetry };
     }
   }
 
-  const magicLink = await getMagicLink();
-  if (magicLink) {
-    return {
+  const magicLinkFallback = await getMagicLink();
+  if (magicLinkFallback) {
+    const fallbackSeed: SupabaseSessionSeed = {
       storageKey: `sb-${projectRef}-auth-token`,
       storageValue: '',
       storageArea: 'localStorage',
       session: {} as Session,
       cookiePairs: [],
-      magicLink,
-    } satisfies SupabaseSessionSeed;
+      magicLink: magicLinkFallback,
+    };
+    return { status: 'success', seed: fallbackSeed, telemetry };
   }
 
-  options?.logger?.('Supabase login exhausted retries.');
-  return null;
+  return {
+    status: 'skipped',
+    reason: 'Supabase login exhausted retries.',
+    telemetry,
+  };
 }
 
 export async function clearSupabaseState(page: Page) {

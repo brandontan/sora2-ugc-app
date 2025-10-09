@@ -1,6 +1,10 @@
 import path from 'path';
 import { expect, test } from '@playwright/test';
-import { clearSupabaseState, createSupabaseSession } from './helpers/supabase-session';
+import {
+  clearSupabaseState,
+  createSupabaseSession,
+  type SupabaseSessionSeed,
+} from './helpers/supabase-session';
 
 const productImage = path.join(__dirname, 'fixtures', 'product.png');
 
@@ -45,17 +49,36 @@ test('live genvidsfast flow', async ({ page, context }) => {
   const password = process.env.LIVE_TEST_PASSWORD ?? 'Playwright1!';
 
   const logger = (message: string) => console.log(`[supabase-login] ${message}`);
-  const sessionSeed = await createSupabaseSession({
+  const toNumber = (value?: string) => {
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  const sessionResult = await createSupabaseSession({
     email,
     password,
     logger,
+    maxAttempts: toNumber(process.env.LIVE_TEST_LOGIN_ATTEMPTS),
+    retryDelayMs: toNumber(process.env.LIVE_TEST_LOGIN_DELAY_MS),
+    retryJitterMs: toNumber(process.env.LIVE_TEST_LOGIN_JITTER_MS),
   });
+
+  const sessionSeed: SupabaseSessionSeed | null =
+    sessionResult.status === 'success' ? sessionResult.seed : null;
 
   const isMockRun =
     process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === 'true' ||
     process.env.MOCK_API === 'true';
 
   const useAutomation = Boolean(AUTOMATION_SECRET) && !isMockRun;
+
+  if (sessionResult.status === 'skipped') {
+    console.warn(`[supabase-login] ${sessionResult.reason}`);
+    if (!useAutomation) {
+      test.skip(true, sessionResult.reason);
+    }
+  }
 
   if (useAutomation && AUTOMATION_SECRET) {
     await page.route('**/api/sora/jobs', async (route) => {
@@ -70,7 +93,9 @@ test('live genvidsfast flow', async ({ page, context }) => {
   }
 
   if (!sessionSeed && !useAutomation) {
-    test.skip(true, 'Supabase session unavailable');
+    test.skip(true, sessionResult.status === 'skipped'
+      ? sessionResult.reason
+      : 'Supabase session unavailable');
   }
   const dashboardUrl = SITE_URL.endsWith('/')
     ? `${SITE_URL}dashboard`
@@ -159,7 +184,32 @@ test('live genvidsfast flow', async ({ page, context }) => {
     }));
     console.log('storage snapshot', storageSnapshot);
   } else {
-    test.skip(true, 'Unable to acquire session for test');
+    test.skip(
+      true,
+      sessionResult.status === 'skipped'
+        ? sessionResult.reason
+        : 'Unable to acquire session for test',
+    );
+  }
+
+  if (!page.url().includes('/dashboard')) {
+    const launchCta = page.getByRole('button', {
+      name: /launch workspace|open dashboard|start creating|start now/i,
+    });
+
+    if (await launchCta.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await launchCta.click();
+      await page.waitForURL('**/dashboard**', { timeout: 60_000 });
+    } else {
+      const emailCta = page
+        .getByRole('button', { name: /email me access|email me a link/i })
+        .first();
+      if (await emailCta.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        await emailCta.click();
+      }
+      await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
+      await page.waitForURL('**/dashboard**', { timeout: 60_000 });
+    }
   }
   const balanceDisplay = page.getByTestId('balance-value');
   if ((await balanceDisplay.count()) === 0) {
