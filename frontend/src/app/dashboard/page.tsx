@@ -72,6 +72,7 @@ export default function Dashboard() {
   }, [balance]);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
+  const packLabel = `${pricingSummary.creditsPerPack.toFixed(0)}-credit pack`;
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -323,8 +324,13 @@ export default function Dashboard() {
       });
 
       if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const reason =
+          typeof payload?.error?.message === "string"
+            ? payload.error.message
+            : "Could not start checkout. Try again.";
         setMessageTone("error");
-        setMessage("Could not start checkout. Try again.");
+        setMessage(reason);
         return;
       }
 
@@ -421,18 +427,28 @@ export default function Dashboard() {
                   Balance low. Top up before launching the next job.
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-muted-foreground">Each Sora2 run costs {DEFAULT_CREDIT_COST} credits.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Each Sora2 run costs {DEFAULT_CREDIT_COST} credits (~$
+                  {pricingSummary.runPriceUsd.toFixed(2)}).
+                </p>
               )}
             </div>
           </div>
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-4 text-xs text-muted-foreground">
+            <p>
+              ${pricingSummary.packPriceUsd.toFixed(0)} per pack → {packLabel} → {pricingSummary.runsPerPack.toFixed(0)} runs.
+              You net ~$ {pricingSummary.netPerRunUsd.toFixed(2)} per run after Stripe (~$
+              {pricingSummary.stripeFeePerRunUsd.toFixed(2)}) and Sora ($
+              {pricingSummary.providerCostPerRunUsd.toFixed(2)}).
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleCheckout}
               className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition hover:bg-primary/90"
             >
-              Buy 15-credit pack
-              <ArrowRight className="h-4 w-4" />
+              Buy {packLabel}
             </button>
             <button
               type="button"
