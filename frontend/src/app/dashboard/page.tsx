@@ -8,6 +8,7 @@ import Image from "next/image";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
+import { getPricingSummary } from "@/lib/pricing";
 
 type Job = {
   id: string;
@@ -70,6 +71,7 @@ export default function Dashboard() {
     return balance < DEFAULT_CREDIT_COST;
   }, [balance]);
 
+  const pricingSummary = useMemo(() => getPricingSummary(), []);
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -397,6 +399,16 @@ export default function Dashboard() {
               <h1 className="text-3xl font-semibold text-foreground">Keep the ledger honest</h1>
               <p className="max-w-xl text-sm text-muted-foreground">
                 Stripe checkout writes to `credit_ledger`, and Supabase realtime keeps this card up to date. We block runs when balance dips below {DEFAULT_CREDIT_COST} credits.
+              </p>
+              <p className="mt-4 text-xs text-muted-foreground">
+                ${pricingSummary.packPriceUsd.toFixed(0)} gives you
+                {" "}
+                {pricingSummary.runsPerPack.toFixed(0)} runs (~$
+                {pricingSummary.runPriceUsd.toFixed(2)} each). After Stripe (~$
+                {pricingSummary.stripeFeePerRunUsd.toFixed(2)} per run) and Sora cost ($
+                {pricingSummary.providerCostPerRunUsd.toFixed(2)}), we net $
+                {pricingSummary.netPerRunUsd.toFixed(2)} per run (~
+                {pricingSummary.grossMarginPercent.toFixed(1)}% margin).
               </p>
             </div>
             <div className="text-right">
