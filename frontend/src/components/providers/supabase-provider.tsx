@@ -59,10 +59,14 @@ export function SupabaseProvider({
 
       if (error) throw error;
 
-      let currentProfile: Profile | null = existing ?? null;
+      const generated = generateProfileTemplate(userId, email);
+      const needsUpdate =
+        !existing ||
+        !existing.avatar_seed ||
+        !existing.avatar_style ||
+        !existing.display_name;
 
-      if (!currentProfile) {
-        const generated = generateProfileTemplate(userId, email);
+      if (needsUpdate) {
         const upsertResult = await client
           .from("profiles")
           .upsert(
@@ -78,10 +82,17 @@ export function SupabaseProvider({
           .maybeSingle();
 
         if (upsertResult.error) throw upsertResult.error;
-        currentProfile = upsertResult.data ?? null;
+        setProfile(
+          upsertResult.data ?? {
+            id: userId,
+            display_name: generated.displayName,
+            avatar_seed: generated.avatarSeed,
+            avatar_style: generated.avatarStyle,
+          },
+        );
+      } else {
+        setProfile(existing);
       }
-
-      setProfile(currentProfile);
     } catch (error) {
       console.warn("supabase-profile", error);
     } finally {
