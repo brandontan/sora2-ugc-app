@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(validated);
   } catch (error) {
+    console.error("stripe-checkout", error);
     const message =
       error instanceof Error ? error.message : "Stripe checkout failed.";
     return NextResponse.json(
