@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { ChaoticVideoBackground } from "@/components/design/chaotic-video-background";
 import { WelcomeHeader } from "@/components/design/welcome-header";
@@ -102,18 +101,6 @@ export default function Home() {
     router.push("/dashboard");
   };
 
-  const launchWorkspace = () => {
-    if (session) {
-      router.push("/dashboard");
-      return;
-    }
-    if (phase === "otp") {
-      otpFormRef.current?.requestSubmit();
-      return;
-    }
-    formRef.current?.requestSubmit();
-  };
-
   useEffect(() => {
     if (!loading && session) {
       router.replace("/dashboard");
@@ -134,23 +121,8 @@ export default function Home() {
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
             Product photo <span className="gradient-text">→ Sora video</span>
           </h1>
-          <div className="mt-12 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-            <button
-              type="button"
-              onClick={launchWorkspace}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-              disabled={status === "sending"}
-            >
-              <Sparkles className="h-4 w-4" />
-              {session ? "Open dashboard" : "Start creating"}
-            </button>
-            <button
-              type="button"
-              onClick={() => document.getElementById("magic-link-email")?.focus()}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-border/60 px-8 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-            >
-              Email me access
-            </button>
+          <div className="mt-10 text-sm text-muted-foreground">
+            Already have a code? Enter it below to jump straight into your workspace.
           </div>
         </div>
 
