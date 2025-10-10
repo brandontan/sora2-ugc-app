@@ -40,7 +40,7 @@ Enable creators to log in, buy credits, upload one product image, describe desir
   - Frontend: Playwright flow covering login → upload → mock job completion → download.
   - Load test stub to ensure credits guard cannot be bypassed.
 - DevX:
-  - `.env.sample` for backend and frontend.
+  - `env.sample` for backend and frontend.
   - Makefile or npm scripts for `dev`, `test`, `lint`, `aud`.
   - GitHub Actions: lint, test, SAST, deploy stubs.
 - Launch Checklist:
