@@ -1,13 +1,24 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
+import { generateProfileTemplate } from "@/lib/profile";
+
+type Profile = {
+  id: string;
+  display_name: string | null;
+  avatar_seed: string | null;
+  avatar_style: string | null;
+};
 
 type SupabaseContextValue = {
   supabase: SupabaseClient | MockSupabaseClient | null;
   session: Session | null;
   loading: boolean;
+  profile: Profile | null;
+  profileLoading: boolean;
+  refreshProfile: () => Promise<void>;
 };
 
 const SupabaseContext = createContext<SupabaseContextValue | undefined>(
@@ -24,6 +35,59 @@ export function SupabaseProvider({
   >(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  const refreshProfile = useCallback(async () => {
+    if (!supabase || !session?.user?.id) {
+      setProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+
+    setProfileLoading(true);
+    try {
+      const userId = session.user.id;
+      const email = session.user.email ?? null;
+      const client = supabase as SupabaseClient;
+
+      const { data: existing, error } = await client
+        .from("profiles")
+        .select("id, display_name, avatar_seed, avatar_style")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      let currentProfile: Profile | null = existing ?? null;
+
+      if (!currentProfile) {
+        const generated = generateProfileTemplate(userId, email);
+        const upsertResult = await client
+          .from("profiles")
+          .upsert(
+            {
+              id: userId,
+              display_name: generated.displayName,
+              avatar_seed: generated.avatarSeed,
+              avatar_style: generated.avatarStyle,
+            },
+            { onConflict: "id" },
+          )
+          .select()
+          .maybeSingle();
+
+        if (upsertResult.error) throw upsertResult.error;
+        currentProfile = upsertResult.data ?? null;
+      }
+
+      setProfile(currentProfile);
+    } catch (error) {
+      console.warn("supabase-profile", error);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [supabase, session?.user?.id, session?.user?.email]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -34,6 +98,7 @@ export function SupabaseProvider({
       });
       setSupabase(mock);
       setLoading(false);
+      setProfileLoading(false);
       return () => {
         mock.cleanup();
       };
@@ -61,6 +126,10 @@ export function SupabaseProvider({
         if (mounted) {
           setSession(data.session ?? null);
           setLoading(false);
+          if (!data.session) {
+            setProfile(null);
+            setProfileLoading(false);
+          }
         }
       })
       .catch(() => mounted && setLoading(false));
@@ -77,13 +146,26 @@ export function SupabaseProvider({
     };
   }, []);
 
+  useEffect(() => {
+    if (!supabase) return;
+    if (!session?.user?.id) {
+      setProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+    void refreshProfile();
+  }, [supabase, session?.user?.id, refreshProfile]);
+
   const value = useMemo(
     () => ({
       supabase,
       session,
       loading,
+      profile,
+      profileLoading,
+      refreshProfile,
     }),
-    [supabase, session, loading],
+    [supabase, session, loading, profile, profileLoading, refreshProfile],
   );
 
   return (
@@ -115,16 +197,7 @@ type MockSupabaseClient = {
     }) => Promise<{ data: { session: Session | null }; error: null }>;
     signOut: () => Promise<{ error: null }>;
   };
-  from: (
-    table: string,
-  ) => {
-    select: () => {
-      eq: (_column: string, _value: string) => {
-        order: () => Promise<{ data: unknown[]; error: null }>;
-        maybeSingle?: () => Promise<{ data: unknown | null; error: null }>;
-      };
-    };
-  };
+  from: (table: string) => unknown;
   storage: {
     from: (_bucket: string) => {
       upload: (
@@ -159,8 +232,29 @@ function createMockSupabaseClient(
     | null = null;
 
   const userId = "mock-user-id";
+  let mockProfile: Profile | null = null;
+
+  const ensureMockProfile = (email?: string | null) => {
+    if (!mockProfile) {
+      const generated = generateProfileTemplate(userId, email);
+      mockProfile = {
+        id: userId,
+        display_name: generated.displayName,
+        avatar_seed: generated.avatarSeed,
+        avatar_style: generated.avatarStyle,
+      };
+    }
+    return mockProfile;
+  };
 
   const buildSession = (email: string): Session => {
+    const template = generateProfileTemplate(userId, email);
+    mockProfile = {
+      id: userId,
+      display_name: template.displayName,
+      avatar_seed: template.avatarSeed,
+      avatar_style: template.avatarStyle,
+    };
     return {
       access_token: `mock-session:${userId}`,
       refresh_token: "",
@@ -239,6 +333,53 @@ function createMockSupabaseClient(
       },
     },
     from(table: string) {
+      if (table === "profiles") {
+        return {
+          select() {
+            return {
+              eq(_column: string, value: string) {
+                return {
+                  async maybeSingle() {
+                    if (value !== userId) {
+                      return { data: null, error: null };
+                    }
+                    return { data: ensureMockProfile(currentSession?.user?.email ?? null), error: null };
+                  },
+                  async single() {
+                    const profile = ensureMockProfile(currentSession?.user?.email ?? null);
+                    if (value !== userId) {
+                      return { data: profile, error: null };
+                    }
+                    return { data: profile, error: null };
+                  },
+                };
+              },
+            };
+          },
+          upsert(payload: Record<string, unknown> | Record<string, unknown>[]) {
+            const record = Array.isArray(payload) ? payload[0] : payload;
+            const base = ensureMockProfile(currentSession?.user?.email ?? null);
+            mockProfile = {
+              id: userId,
+              display_name: (record?.display_name as string | undefined) ?? base.display_name,
+              avatar_seed: (record?.avatar_seed as string | undefined) ?? base.avatar_seed,
+              avatar_style: (record?.avatar_style as string | undefined) ?? base.avatar_style,
+            };
+            return {
+              select() {
+                return {
+                  async maybeSingle() {
+                    return { data: mockProfile, error: null };
+                  },
+                  async single() {
+                    return { data: mockProfile, error: null };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
       return {
         select() {
           const run = async (): Promise<{ data: unknown[]; error: null }> => {

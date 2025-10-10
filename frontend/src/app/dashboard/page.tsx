@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import Image from "next/image";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
+import { dicebearUrl } from "@/lib/profile";
 
 type Job = {
   id: string;
@@ -49,7 +51,7 @@ const DURATION_OPTIONS =
   ENV_DURATION_OPTIONS.length > 0 ? ENV_DURATION_OPTIONS : [10, 20, 30];
 
 export default function Dashboard() {
-  const { supabase, session, loading } = useSupabase();
+  const { supabase, session, loading, profile, profileLoading } = useSupabase();
   const router = useRouter();
 
   const [balance, setBalance] = useState<number | null>(null);
@@ -67,6 +69,11 @@ export default function Dashboard() {
     if (balance === null) return false;
     return balance < DEFAULT_CREDIT_COST;
   }, [balance]);
+
+  const creatorName = profile?.display_name ?? "Creator";
+  const avatarUrl = profile?.avatar_seed
+    ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
+    : null;
 
   useEffect(() => {
     if (!loading && !session) {
@@ -345,6 +352,23 @@ export default function Dashboard() {
             GenVids Fast
           </button>
           <div className="flex items-center gap-3">
+            {profileLoading ? (
+              <div className="h-12 w-32 rounded-full border border-border/60 bg-muted/40" />
+            ) : avatarUrl ? (
+              <div className="flex items-center gap-3 rounded-full border border-border/70 px-4 py-2">
+                <Image
+                  src={avatarUrl}
+                  alt={`${creatorName} avatar`}
+                  width={36}
+                  height={36}
+                  className="h-9 w-9 rounded-full border border-border/40 bg-background object-cover"
+                />
+                <div className="leading-tight">
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Creator ID</p>
+                  <p className="text-sm font-semibold text-foreground">{creatorName}</p>
+                </div>
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={handleCheckout}

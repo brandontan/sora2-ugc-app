@@ -5,8 +5,37 @@ create extension if not exists "uuid-ossp";
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text,
-  created_at timestamptz not null default timezone('utc', now())
+  avatar_seed text,
+  avatar_style text default 'bottts',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.profiles
+  add column if not exists avatar_seed text;
+
+alter table public.profiles
+  add column if not exists avatar_style text default 'bottts';
+
+alter table public.profiles
+  add column if not exists updated_at timestamptz default timezone('utc', now());
+
+create or replace function public.set_profiles_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := timezone('utc', now());
+  return new;
+end;
+$$;
+
+drop trigger if exists set_profiles_updated_at on public.profiles;
+
+create trigger set_profiles_updated_at
+before update on public.profiles
+for each row
+execute procedure public.set_profiles_updated_at();
 
 -- Credit ledger tracks every movement (+/-)
 create table if not exists public.credit_ledger (
@@ -63,6 +92,9 @@ create policy "profiles-select-own" on public.profiles
 create policy "profiles-update-own" on public.profiles
   for update using (auth.uid() = id)
   with check (auth.uid() = id);
+
+create policy "profiles-insert-own" on public.profiles
+  for insert with check (auth.uid() = id);
 
 create policy "ledger-select-own" on public.credit_ledger
   for select using (auth.uid() = user_id);

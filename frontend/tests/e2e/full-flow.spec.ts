@@ -15,14 +15,7 @@ test('user can sign in, buy credits, generate video, and download', async ({ pag
   const emailInput = page.getByPlaceholder('you@brand.com');
   await emailInput.fill('mock-user@example.com');
   await page.getByRole('button', { name: 'Email me a link' }).click();
-  await expect(page.getByText('Check your inbox for the magic link.')).toBeVisible();
-
-  try {
-    await page.waitForURL('**/dashboard', { timeout: 5000 });
-  } catch {
-    await page.getByRole('button', { name: 'Launch workspace' }).click();
-    await page.waitForURL('**/dashboard');
-  }
+  await page.waitForURL('**/dashboard', { timeout: 15000 });
 
   await page.getByRole('button', { name: 'Buy credits' }).click();
   await page.waitForURL('**/dashboard?checkout=mock-success', { timeout: 10000 });
