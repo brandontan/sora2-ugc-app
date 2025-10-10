@@ -410,15 +410,22 @@ export async function applySupabaseSession(options: {
 
   await page.addInitScript(
     ([key, value, area, secondaryKey, secondaryValue, cookies]) => {
-      const target = area === 'sessionStorage' ? window.sessionStorage : window.localStorage;
-      target.setItem(key, value as string);
-      if (secondaryKey && secondaryValue) {
-        target.setItem(secondaryKey as string, secondaryValue as string);
+      const storageKeyValue = typeof key === 'string' ? key : '';
+      const primaryValue = typeof value === 'string' ? value : '';
+      const targetArea = area === 'sessionStorage' ? 'sessionStorage' : 'localStorage';
+      const target = targetArea === 'sessionStorage' ? window.sessionStorage : window.localStorage;
+      target.setItem(storageKeyValue, primaryValue);
+      if (typeof secondaryKey === 'string' && typeof secondaryValue === 'string') {
+        target.setItem(secondaryKey, secondaryValue);
       }
       if (Array.isArray(cookies)) {
         const maxAge = 400 * 24 * 60 * 60;
-        cookies.forEach(([cookieName, cookieValue]) => {
-          document.cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+        cookies.forEach((entry) => {
+          if (!Array.isArray(entry)) return;
+          const [cookieName, cookieValue] = entry;
+          if (typeof cookieName === 'string' && typeof cookieValue === 'string') {
+            document.cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+          }
         });
       }
     },

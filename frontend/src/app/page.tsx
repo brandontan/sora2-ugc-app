@@ -13,7 +13,12 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [phase, setPhase] = useState<"email" | "otp">("email");
+  const [otp, setOtp] = useState("");
+  const [otpStatus, setOtpStatus] = useState<"idle" | "verifying" | "error">("idle");
   const formRef = useRef<HTMLFormElement | null>(null);
+  const otpFormRef = useRef<HTMLFormElement | null>(null);
+  const otpInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleMagicLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -41,12 +46,69 @@ export default function Home() {
       return;
     }
     setStatus("sent");
-    setMessage("Magic link sent. Check your inbox.");
+    setMessage("Check your inbox for the magic link. Enter the 6-digit code below to finish signing in.");
+
+    if (process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === "true") {
+      router.push("/dashboard");
+      return;
+    }
+
+    setPhase("otp");
+    setTimeout(() => {
+      otpInputRef.current?.focus();
+    }, 0);
+  };
+
+  const handleVerifyOtp = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!email) {
+      setOtpStatus("error");
+      setMessage("Enter the email used for the code.");
+      return;
+    }
+
+    const token = otp.replace(/\s+/g, "");
+    if (!token) {
+      setOtpStatus("error");
+      setMessage("Add the 6-digit code from your inbox.");
+      return;
+    }
+
+    if (!supabase) {
+      setOtpStatus("error");
+      setMessage("Supabase client not ready. Refresh and try again.");
+      return;
+    }
+
+    setOtpStatus("verifying");
+    setMessage("");
+
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: "email",
+    });
+
+    if (error) {
+      setOtpStatus("error");
+      setMessage(error.message ?? "Code invalid or expired. Resend to try again.");
+      return;
+    }
+
+    setOtpStatus("idle");
+    setMessage("Signed in. Redirecting to your dashboard…");
+    setPhase("email");
+    router.push("/dashboard");
   };
 
   const launchWorkspace = () => {
     if (session) {
       router.push("/dashboard");
+      return;
+    }
+    if (phase === "otp") {
+      otpFormRef.current?.requestSubmit();
       return;
     }
     formRef.current?.requestSubmit();
@@ -97,31 +159,93 @@ export default function Home() {
           <div className="relative glass-surface rounded-[28px] p-8 text-left shadow-2xl">
             <h2 className="text-2xl font-semibold">Sign in instantly</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Enter your email and we’ll send a one-click sign-in link.
+              Enter your email for a one-time passcode or use the magic link from your inbox.
             </p>
-            <form ref={formRef} onSubmit={handleMagicLink} className="mt-6 space-y-4">
-              <label className="block text-sm text-muted-foreground">
-                Email address
-                <input
-                  id="magic-link-email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@brand.com"
-                  className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
-                />
-              </label>
-              <button
-                type="submit"
-                className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                disabled={status === "sending"}
+            {phase === "email" && (
+              <form
+                ref={formRef}
+                onSubmit={handleMagicLink}
+                className="mt-6 space-y-4"
+                data-testid="email-auth-form"
               >
-                {status === "sending" ? "Sending magic link…" : "Email me a link"}
-              </button>
-            </form>
+                <label className="block text-sm text-muted-foreground">
+                  Email address
+                  <input
+                    id="magic-link-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@brand.com"
+                    className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
+                    autoComplete="email"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                  disabled={status === "sending"}
+                >
+                  {status === "sending" ? "Sending magic link…" : "Email me a link"}
+                </button>
+              </form>
+            )}
+            {phase === "otp" && (
+              <form
+                ref={otpFormRef}
+                onSubmit={handleVerifyOtp}
+                className="mt-6 space-y-4"
+                data-testid="otp-auth-form"
+              >
+                <label className="block text-sm text-muted-foreground">
+                  Enter the 6-digit code
+                  <input
+                    id="magic-link-otp"
+                    ref={otpInputRef}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(event) => setOtp(event.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="000000"
+                    className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground tracking-[0.4em] outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
+                    data-testid="otp-input"
+                  />
+                </label>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="submit"
+                    className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                    disabled={otpStatus === "verifying"}
+                  >
+                    {otpStatus === "verifying" ? "Verifying code…" : "Finish sign in"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhase("email");
+                      setStatus("idle");
+                      setOtpStatus("idle");
+                      setOtp("");
+                      setMessage("");
+                      setTimeout(() => formRef.current?.querySelector<HTMLInputElement>("input")?.focus(), 0);
+                    }}
+                    className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                  >
+                    Resend link
+                  </button>
+                </div>
+              </form>
+            )}
             {message && (
-              <p className={`mt-4 text-sm ${status === "error" ? "text-red-400" : "text-primary"}`}>{message}</p>
+              <p
+                className={`mt-4 text-sm ${
+                  status === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
+                }`}
+              >
+                {message}
+              </p>
             )}
           </div>
         </div>

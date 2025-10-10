@@ -108,6 +108,11 @@ type MockSupabaseClient = {
       callback: (event: string, session: Session | null) => void,
     ) => { data: { subscription: { unsubscribe: () => void } } };
     signInWithOtp: (args: { email: string }) => Promise<{ error: null }>;
+    verifyOtp: (args: {
+      email: string;
+      token: string;
+      type: string;
+    }) => Promise<{ data: { session: Session | null }; error: null }>;
     signOut: () => Promise<{ error: null }>;
   };
   from: (
@@ -219,6 +224,12 @@ function createMockSupabaseClient(
         saveSession(currentSession);
         notify("SIGNED_IN", currentSession);
         return { error: null };
+      },
+      async verifyOtp({ email }) {
+        currentSession = buildSession(email);
+        saveSession(currentSession);
+        notify("SIGNED_IN", currentSession);
+        return { data: { session: currentSession }, error: null };
       },
       async signOut() {
         currentSession = null;
