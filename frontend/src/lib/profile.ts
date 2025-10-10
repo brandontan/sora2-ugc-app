@@ -62,8 +62,8 @@ export function generateProfileTemplate(userId: string, email?: string | null): 
   const source = `${userId}:${email ?? ''}`;
   const hash = hashString(source);
   const adjective = ADJECTIVES[hash % ADJECTIVES.length];
-  const creature = CREATURES[(hash >> 6) % CREATURES.length];
-  const numeric = ((hash >> 12) % 90) + 10;
+  const creature = CREATURES[(hash >>> 6) % CREATURES.length];
+  const numeric = ((hash >>> 12) % 90) + 10;
   const avatarSeed = `${adjective}-${creature}-${numeric}`;
   const displayName = `${capitalize(adjective)} ${capitalize(creature)} ${numeric}`;
 
