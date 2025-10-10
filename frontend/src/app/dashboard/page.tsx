@@ -72,7 +72,7 @@ export default function Dashboard() {
   }, [balance]);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
-  const packLabel = `${pricingSummary.creditsPerPack.toFixed(0)}-credit pack`;
+  const packLabel = `$${pricingSummary.packPriceUsd.toFixed(0)} pack`;
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -377,13 +377,6 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : null}
-            <button
-              type="button"
-              onClick={handleCheckout}
-              className="rounded-full border border-border/70 px-5 py-2 text-sm font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
-            >
-              Buy credits
-            </button>
             <button
               type="button"
               onClick={() => supabase?.auth.signOut()}
