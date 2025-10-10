@@ -10,7 +10,7 @@ async function waitForDownloadLink(page) {
 test('user can sign in, buy credits, generate video, and download', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.locator('h1')).toHaveText(/Upload a product/i);
+  await expect(page.locator('h1')).toHaveText(/Product photo\s+→\s+Sora video/i);
 
   const emailInput = page.getByPlaceholder('you@brand.com');
   await emailInput.fill('mock-user@example.com');
