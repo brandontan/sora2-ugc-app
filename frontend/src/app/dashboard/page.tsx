@@ -404,17 +404,8 @@ export default function Dashboard() {
               </p>
               <h1 className="text-3xl font-semibold text-foreground">Keep the ledger honest</h1>
               <p className="max-w-xl text-sm text-muted-foreground">
-                Stripe checkout writes to `credit_ledger`, and Supabase realtime keeps this card up to date. We block runs when balance dips below {DEFAULT_CREDIT_COST} credits.
-              </p>
-              <p className="mt-4 text-xs text-muted-foreground">
-                ${pricingSummary.packPriceUsd.toFixed(0)} gives you
-                {" "}
-                {pricingSummary.runsPerPack.toFixed(0)} runs (~$
-                {pricingSummary.runPriceUsd.toFixed(2)} each). After Stripe (~$
-                {pricingSummary.stripeFeePerRunUsd.toFixed(2)} per run) and Sora cost ($
-                {pricingSummary.providerCostPerRunUsd.toFixed(2)}), we net $
-                {pricingSummary.netPerRunUsd.toFixed(2)} per run (~
-                {pricingSummary.grossMarginPercent.toFixed(1)}% margin).
+                ${pricingSummary.packPriceUsd.toFixed(0)} top-up → {packLabel} → {pricingSummary.runsPerPack.toFixed(0)} runs (~$
+                {pricingSummary.runPriceUsd.toFixed(2)} each). We block runs when balance dips below {DEFAULT_CREDIT_COST} credits.
               </p>
             </div>
             <div className="text-right">
