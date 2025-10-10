@@ -35,9 +35,6 @@ export default function Home() {
     setMessage("");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL ?? undefined,
-      },
     });
     if (error) {
       setStatus("error");
