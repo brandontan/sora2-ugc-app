@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
-import { generateProfileTemplate } from "@/lib/profile";
+import { generateProfileTemplate, type GeneratedProfile } from "@/lib/profile";
 
 type Profile = {
   id: string;
@@ -59,12 +59,12 @@ export function SupabaseProvider({
 
       if (error) throw error;
 
-      const generated = generateProfileTemplate(userId, email);
-      const needsUpdate =
-        !existing ||
-        !existing.avatar_seed ||
-        !existing.avatar_style ||
-        !existing.display_name;
+     const generated = generateProfileTemplate(userId, email);
+     const needsUpdate =
+       !existing ||
+       !existing.avatar_seed ||
+       !existing.avatar_style ||
+       !existing.display_name;
 
       if (needsUpdate) {
         const upsertResult = await client
@@ -81,7 +81,38 @@ export function SupabaseProvider({
           .select()
           .maybeSingle();
 
-        if (upsertResult.error) throw upsertResult.error;
+        if (upsertResult.error) {
+          const isRls = upsertResult.error.message?.includes("row-level security");
+          if (isRls && session?.access_token) {
+            const response = await fetch("/api/profile/ensure", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                accessToken: session.access_token,
+                userId,
+                email,
+              }),
+            });
+
+            if (response.ok) {
+              const payload = (await response.json()) as { profile?: Profile | GeneratedProfile };
+              const ensured = payload.profile as Profile | undefined;
+              setProfile(
+                ensured ?? {
+                  id: userId,
+                  display_name: generated.displayName,
+                  avatar_seed: generated.avatarSeed,
+                  avatar_style: generated.avatarStyle,
+                },
+              );
+              return;
+            }
+          }
+          throw upsertResult.error;
+        }
+
         setProfile(
           upsertResult.data ?? {
             id: userId,
@@ -98,7 +129,7 @@ export function SupabaseProvider({
     } finally {
       setProfileLoading(false);
     }
-  }, [supabase, session?.user?.id, session?.user?.email]);
+  }, [supabase, session?.user?.id, session?.user?.email, session?.access_token]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
