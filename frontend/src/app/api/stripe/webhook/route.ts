@@ -4,22 +4,23 @@ import { getStripeClient } from "@/lib/stripe";
 import { getServiceClient } from "@/lib/supabase/service-client";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("stripe-signature");
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
 
   if (!signature || !secret) {
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
   const stripe = getStripeClient();
-  const body = Buffer.from(await request.arrayBuffer());
+  const rawBody = await request.text();
 
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(body, signature, secret);
+    event = stripe.webhooks.constructEvent(rawBody, signature, secret);
   } catch (error) {
     return NextResponse.json(
       {

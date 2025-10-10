@@ -198,6 +198,65 @@ export function SupabaseProvider({
     void refreshProfile();
   }, [supabase, session?.user?.id, refreshProfile]);
 
+  const inactivityMinutes = useMemo(() => {
+    const raw = process.env.NEXT_PUBLIC_SESSION_TIMEOUT_MINUTES;
+    if (!raw) return 30;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!supabase || !session?.user?.id) {
+      window.localStorage.removeItem("gvf:last-activity");
+      return;
+    }
+
+    const limitMs = inactivityMinutes * 60_000;
+    const storageKey = "gvf:last-activity";
+    const events: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "keydown",
+      "click",
+      "touchstart",
+      "focus",
+    ];
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleSignOut = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        supabase.auth.signOut().catch((error) => {
+          console.warn("session-timeout", error);
+        });
+      }, limitMs);
+    };
+
+    const handleActivity = () => {
+      window.localStorage.setItem(storageKey, Date.now().toString());
+      scheduleSignOut();
+    };
+
+    const lastActivityRaw = window.localStorage.getItem(storageKey);
+    let lastActivity = lastActivityRaw ? Number(lastActivityRaw) : NaN;
+    if (!Number.isFinite(lastActivity)) {
+      lastActivity = Date.now();
+      window.localStorage.setItem(storageKey, lastActivity.toString());
+    } else if (Date.now() - lastActivity >= limitMs) {
+      void supabase.auth.signOut();
+      return;
+    }
+
+    scheduleSignOut();
+    events.forEach((event) => window.addEventListener(event, handleActivity));
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach((event) => window.removeEventListener(event, handleActivity));
+    };
+  }, [supabase, session?.user?.id, inactivityMinutes]);
+
   const value = useMemo(
     () => ({
       supabase,

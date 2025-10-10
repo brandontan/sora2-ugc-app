@@ -24,15 +24,18 @@ export type PricingSummary = {
   grossMarginPercent: number;
 };
 
+export function getCreditPackSize(): number {
+  const envValue =
+    process.env.NEXT_PUBLIC_SORA_CREDIT_PACK_SIZE ?? process.env.SORA_CREDIT_PACK_SIZE;
+  return parseNumber(envValue, DEFAULT_CREDIT_PACK_SIZE);
+}
+
 export function getPricingSummary(): PricingSummary {
   const packPriceUsd = parseNumber(
     process.env.NEXT_PUBLIC_SORA_PACK_PRICE_USD ?? process.env.SORA_PACK_PRICE_USD,
     DEFAULT_PACK_PRICE_USD,
   );
-  const creditsPerPack = parseNumber(
-    process.env.NEXT_PUBLIC_SORA_CREDIT_PACK_SIZE ?? process.env.SORA_CREDIT_PACK_SIZE,
-    DEFAULT_CREDIT_PACK_SIZE,
-  );
+  const creditsPerPack = getCreditPackSize();
   const creditCostPerRun = parseNumber(
     process.env.NEXT_PUBLIC_SORA_CREDIT_COST ?? process.env.SORA_CREDIT_COST,
     DEFAULT_CREDIT_COST,
