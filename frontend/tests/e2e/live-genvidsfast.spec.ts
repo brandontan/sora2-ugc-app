@@ -1,6 +1,7 @@
 import path from 'path';
 import { expect, test } from '@playwright/test';
 import {
+  applySupabaseSession,
   clearSupabaseState,
   createSupabaseSession,
   type SupabaseSessionSeed,
@@ -129,53 +130,12 @@ test('live genvidsfast flow', async ({ page, context }) => {
     await page.goto(sessionSeed.magicLink, { waitUntil: 'networkidle' });
     await page.waitForURL('**/dashboard**', { timeout: 60_000 });
   } else if (sessionSeed) {
-    const {
-      storageKey,
-      storageValue,
-      storageArea,
-      userStorageKey,
-      userStorageValue,
-      cookiePairs,
-    } = sessionSeed;
-
-    if (cookiePairs?.length) {
-      const origin = new URL(dashboardUrl).origin;
-      await context.addCookies(
-        cookiePairs.map(({ name, value }) => ({
-          name,
-          value,
-          url: origin,
-          sameSite: 'Lax' as const,
-          httpOnly: false,
-          secure: true,
-        })),
-      );
-    }
-
-    await page.addInitScript(
-      ([key, value, area, secondaryKey, secondaryValue, cookies]) => {
-        const target = area === 'sessionStorage' ? window.sessionStorage : window.localStorage;
-        target.setItem(key, value as string);
-        if (secondaryKey && secondaryValue) {
-          target.setItem(secondaryKey as string, secondaryValue as string);
-        }
-        if (Array.isArray(cookies)) {
-          const maxAge = 400 * 24 * 60 * 60;
-          cookies.forEach(([cookieName, cookieValue]) => {
-            document.cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
-          });
-        }
-      },
-      [
-        storageKey,
-        storageValue,
-        storageArea,
-        userStorageKey ?? null,
-        userStorageValue ?? null,
-        cookiePairs?.map((entry) => [entry.name, entry.value]) ?? null,
-      ],
-    );
-
+    await applySupabaseSession({
+      page,
+      context,
+      seed: sessionSeed,
+      dashboardUrl,
+    });
     await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
     const storageSnapshot = await page.evaluate(() => ({
       local: Object.keys(window.localStorage),

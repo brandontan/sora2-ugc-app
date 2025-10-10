@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { BrowserContext, Page } from '@playwright/test';
 import { createClient, type Session } from '@supabase/supabase-js';
 
 const DEFAULT_MAX_LOGIN_ATTEMPTS = 3;
@@ -374,6 +374,63 @@ export async function createSupabaseSession(
     reason: 'Supabase login exhausted retries.',
     telemetry,
   };
+}
+
+export async function applySupabaseSession(options: {
+  page: Page;
+  context: BrowserContext;
+  seed: SupabaseSessionSeed;
+  dashboardUrl: string;
+}) {
+  const { page, context, seed, dashboardUrl } = options;
+  const {
+    storageKey,
+    storageValue,
+    storageArea,
+    userStorageKey,
+    userStorageValue,
+    cookiePairs,
+  } = seed;
+
+  if (cookiePairs?.length) {
+    const origin = new URL(dashboardUrl).origin;
+    const isSecure = origin.startsWith('https://');
+    await context.addCookies(
+      cookiePairs.map(({ name, value }) => ({
+        name,
+        value,
+        url: origin,
+        sameSite: 'Lax' as const,
+        httpOnly: false,
+        secure: isSecure,
+        path: '/',
+      })),
+    );
+  }
+
+  await page.addInitScript(
+    ([key, value, area, secondaryKey, secondaryValue, cookies]) => {
+      const target = area === 'sessionStorage' ? window.sessionStorage : window.localStorage;
+      target.setItem(key, value as string);
+      if (secondaryKey && secondaryValue) {
+        target.setItem(secondaryKey as string, secondaryValue as string);
+      }
+      if (Array.isArray(cookies)) {
+        const maxAge = 400 * 24 * 60 * 60;
+        cookies.forEach(([cookieName, cookieValue]) => {
+          document.cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+        });
+      }
+    },
+    [
+      storageKey,
+      storageValue,
+      storageArea,
+      userStorageKey ?? null,
+      userStorageValue ?? null,
+      cookiePairs?.map((entry) => [entry.name, entry.value]) ?? null,
+    ],
+  );
 }
 
 export async function clearSupabaseState(page: Page) {
