@@ -396,44 +396,24 @@ export default function Dashboard() {
       </header>
 
       <main className="relative z-20 mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-16">
-        <section className="glass-surface rounded-[32px] border border-border/60 p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                Credits overview
-              </p>
-              <h1 className="text-3xl font-semibold text-foreground">Keep the ledger honest</h1>
-              <p className="max-w-xl text-sm text-muted-foreground">
-                ${pricingSummary.packPriceUsd.toFixed(0)} top-up → {packLabel} → {pricingSummary.runsPerPack.toFixed(0)} runs (~$
-                {pricingSummary.runPriceUsd.toFixed(2)} each). We block runs when balance dips below {DEFAULT_CREDIT_COST} credits.
-              </p>
-            </div>
-            <div className="text-right">
+        <section className="glass-surface rounded-[32px] border border-border/60 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Available credits</p>
-              <p className="mt-2 text-5xl font-semibold text-foreground" data-testid="balance-value">
+              <p className="mt-1 text-5xl font-semibold text-foreground" data-testid="balance-value">
                 {balance === null ? <span className="text-muted-foreground/60">--</span> : balance}
               </p>
               {isLowBalance ? (
                 <p className="mt-1 text-xs text-amber-300">
                   Balance low. Top up before launching the next job.
                 </p>
-              ) : (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Each Sora2 run costs {DEFAULT_CREDIT_COST} credits (~$
-                  {pricingSummary.runPriceUsd.toFixed(2)}).
-                </p>
-              )}
+              ) : null}
+            </div>
+            <div className="space-y-1 text-right text-xs text-muted-foreground">
+              <p>{packLabel} = {pricingSummary.runsPerPack.toFixed(0)} runs (~${pricingSummary.runPriceUsd.toFixed(2)} each)</p>
             </div>
           </div>
-          <div className="mt-4 text-xs text-muted-foreground">
-            <p>
-              ${pricingSummary.packPriceUsd.toFixed(0)} per pack → {packLabel} → {pricingSummary.runsPerPack.toFixed(0)} runs.
-              You net ~$ {pricingSummary.netPerRunUsd.toFixed(2)} per run after Stripe (~$
-              {pricingSummary.stripeFeePerRunUsd.toFixed(2)}) and Sora ($
-              {pricingSummary.providerCostPerRunUsd.toFixed(2)}).
-            </p>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleCheckout}
