@@ -632,7 +632,7 @@ export default function Dashboard() {
 
     setMessageTone("neutral");
     setMessage(
-      `Job ${parsed.jobId.slice(0, 6)} queued. We’ll email you when the video is ready.`,
+      `Job ${parsed.jobId.slice(0, 6)} queued. We'll email you when the video is ready.`,
     );
     setPrompt("");
     setFile(null);
@@ -649,7 +649,7 @@ export default function Dashboard() {
     ) as HTMLInputElement | null;
     if (uploadInput) uploadInput.value = "";
     setIsSubmitting(false);
-    await Promise.all([refreshBalance(), refreshJobs()]);
+    void Promise.all([refreshBalance(), refreshJobs()]);
   };
 
   const handleCheckout = async () => {

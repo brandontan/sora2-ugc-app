@@ -57,9 +57,38 @@ create table if not exists public.jobs (
   provider_job_id text,
   video_url text,
   credit_cost integer not null default 5,
-  created_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
 );
 create index if not exists jobs_user_idx on public.jobs (user_id, created_at desc);
+
+-- Add provider metadata columns for queue transparency
+alter table public.jobs
+  add column if not exists provider_status text;
+
+alter table public.jobs
+  add column if not exists queue_position integer;
+
+alter table public.jobs
+  add column if not exists provider_error text;
+
+-- Auto-update updated_at on jobs
+create or replace function public.set_jobs_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := timezone('utc', now());
+  return new;
+end;
+$$;
+
+drop trigger if exists set_jobs_updated_at on public.jobs;
+
+create trigger set_jobs_updated_at
+before update on public.jobs
+for each row
+execute procedure public.set_jobs_updated_at();
 
 -- Optional assets table for quick lookup
 create table if not exists public.assets (
