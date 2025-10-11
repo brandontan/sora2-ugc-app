@@ -100,6 +100,8 @@ const MODEL_OPTIONS = [
 type AspectRatioOption = "16:9" | "9:16" | "1:1";
 type ProviderKey = keyof typeof PROVIDER_CONFIG;
 
+const MAX_PROMPT_LENGTH = 2000;
+
 const DEFAULT_PROVIDER: ProviderKey = "fal";
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
   PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
@@ -752,11 +754,12 @@ export default function Dashboard() {
                       onChange={(event) => setPrompt(event.target.value)}
                       placeholder="Describe the scene, movement, camera notes, and product callouts."
                       rows={4}
+                      maxLength={MAX_PROMPT_LENGTH}
                       className="mt-3 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
                     />
                     <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                      <span>Keep it short—Sora leans on the product shot.</span>
-                      <span>{prompt.length}/320</span>
+                      <span>Describe every shot, movement, and cue—Sora thrives on detail.</span>
+                      <span>{prompt.length}/{MAX_PROMPT_LENGTH}</span>
                     </div>
                   </div>
 
