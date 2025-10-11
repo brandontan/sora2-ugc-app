@@ -463,12 +463,6 @@ export default function Dashboard() {
     if (provider === "fal") {
       setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
     }
-    if (provider === "wavespeed") {
-      const catalog = PROVIDER_CONFIG.wavespeed.sizesByAspect;
-      const nextSize =
-        catalog[resetAspect] ?? catalog[PROVIDER_CONFIG.wavespeed.aspectRatios[0]];
-      setWavespeedSize(nextSize[0]);
-    }
     const uploadInput = document.getElementById(
       "product-file",
     ) as HTMLInputElement | null;
