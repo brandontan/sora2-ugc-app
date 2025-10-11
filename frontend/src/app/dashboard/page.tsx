@@ -62,7 +62,7 @@ const PROVIDER_CONFIG = {
     value: "wavespeed" as const,
     label: "WaveSpeed.ai",
     helper: "Text-to-video tuned for permissive policy content.",
-    durations: [12] as const,
+    durations: [4, 8, 12] as const,
     aspectRatios: ["16:9", "9:16", "1:1"] as const,
     sizesByAspect: {
       "16:9": ["1280*720"],
