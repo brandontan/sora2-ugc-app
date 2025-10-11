@@ -620,7 +620,7 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 self-start rounded-full border border-border/70 bg-secondary/40 p-1 text-xs">
-                  {ASPECT_RATIO_OPTIONS.map((option) => {
+                  {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
                     const isActive = aspectRatio === option;
                     return (
                       <button
