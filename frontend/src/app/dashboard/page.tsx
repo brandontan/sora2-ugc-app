@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Loader2, Sparkles } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
 import { getPricingSummary } from "@/lib/pricing";
@@ -37,13 +37,72 @@ const soraResponseSchema = z.object({
   status: z.string(),
 });
 
-const ENV_DURATION_OPTIONS = (process.env
+const ENV_FAL_DURATION_OPTIONS = (process.env
   .NEXT_PUBLIC_FAL_DURATION_OPTIONS?.split(",") || [])
   .map((value) => Number(value.trim()))
-  .filter((value) => Number.isFinite(value) && value >= 5 && value <= 60);
+  .filter((value) => Number.isFinite(value) && value >= 4 && value <= 60);
 
-const DURATION_OPTIONS =
-  ENV_DURATION_OPTIONS.length > 0 ? ENV_DURATION_OPTIONS : [10, 20, 30];
+const FAL_DURATION_OPTIONS =
+  ENV_FAL_DURATION_OPTIONS.length > 0 ? ENV_FAL_DURATION_OPTIONS : [4, 8, 12];
+
+const PROVIDER_CONFIG = {
+  fal: {
+    value: "fal" as const,
+    label: "fal.ai",
+    helper: "Image-to-video with product shot placement.",
+    durations: FAL_DURATION_OPTIONS as readonly number[],
+    aspectRatios: ["16:9", "9:16"] as const,
+    resolutions: ["auto", "720p", "1080p"] as const,
+    slug: (model: "sora2" | "sora2-pro") =>
+      model === "sora2-pro"
+        ? "fal.ai/sora-2-pro/image-to-video"
+        : "fal.ai/sora-2/image-to-video",
+  },
+  wavespeed: {
+    value: "wavespeed" as const,
+    label: "WaveSpeed.ai",
+    helper: "Text-to-video tuned for permissive policy content.",
+    durations: [12] as const,
+    aspectRatios: ["16:9", "9:16", "1:1"] as const,
+    sizesByAspect: {
+      "16:9": ["1280*720"],
+      "9:16": ["720*1280"],
+      "1:1": ["720*720"],
+    } as Record<"16:9" | "9:16" | "1:1", readonly string[]>,
+    slug: () => "wavespeed.ai/openai/sora",
+  },
+} as const;
+
+const PROVIDER_OPTIONS = [
+  {
+    value: PROVIDER_CONFIG.fal.value,
+    label: PROVIDER_CONFIG.fal.label,
+  },
+  {
+    value: PROVIDER_CONFIG.wavespeed.value,
+    label: PROVIDER_CONFIG.wavespeed.label,
+  },
+] as const;
+
+const MODEL_OPTIONS = [
+  {
+    value: "sora2",
+    label: "Sora2",
+    helper: "Balanced quality with faster queue times.",
+  },
+  {
+    value: "sora2-pro",
+    label: "Sora2 Pro",
+    helper: "Sharper detail; allow extra render time.",
+  },
+] as const;
+
+type AspectRatioOption = "16:9" | "9:16" | "1:1";
+type ProviderKey = keyof typeof PROVIDER_CONFIG;
+
+const DEFAULT_PROVIDER: ProviderKey = "fal";
+const DEFAULT_ASPECT_RATIO: AspectRatioOption =
+  PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
 
 export default function Dashboard() {
   const { supabase, session, loading, profile, profileLoading } = useSupabase();
@@ -53,12 +112,26 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState("");
-  const defaultDuration = DURATION_OPTIONS[1] ?? DURATION_OPTIONS[0];
-  const [duration, setDuration] = useState<number>(defaultDuration);
+  const [provider, setProvider] = useState<ProviderKey>(DEFAULT_PROVIDER);
+  const [aspectRatio, setAspectRatio] =
+    useState<AspectRatioOption>(DEFAULT_ASPECT_RATIO);
+  const [duration, setDuration] = useState<number>(
+    PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0],
+  );
+  const [model, setModel] = useState<(typeof MODEL_OPTIONS)[number]["value"]>(
+    MODEL_OPTIONS[0].value,
+  );
+  const [falResolution, setFalResolution] = useState<
+    (typeof PROVIDER_CONFIG.fal.resolutions)[number]
+  >(PROVIDER_CONFIG.fal.resolutions[0]);
+  const [wavespeedSize, setWavespeedSize] = useState<string>(
+    PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0],
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
   const [isFetching, setIsFetching] = useState(false);
+  const [productPreviewUrl, setProductPreviewUrl] = useState<string | null>(null);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
   const creditCostPerRun = pricingSummary.creditCostPerRun;
@@ -74,6 +147,82 @@ export default function Dashboard() {
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
     : null;
+
+  const providerConfig = useMemo(
+    () => PROVIDER_CONFIG[provider],
+    [provider],
+  );
+
+  const selectedModelLabel = useMemo(() => {
+    const match = MODEL_OPTIONS.find((item) => item.value === model);
+    return match?.label ?? "Sora2";
+  }, [model]);
+
+  const providerSlug = useMemo(() => {
+    if (provider === "fal") {
+      const safeModel = model === "sora2-pro" ? "sora2-pro" : "sora2";
+      return PROVIDER_CONFIG.fal.slug(safeModel);
+    }
+    return PROVIDER_CONFIG.wavespeed.slug();
+  }, [model, provider]);
+
+  useEffect(() => {
+    const allowed = providerConfig.aspectRatios as readonly AspectRatioOption[];
+    if (!allowed.includes(aspectRatio)) {
+      setAspectRatio(allowed[0]);
+    }
+  }, [providerConfig, aspectRatio]);
+
+  useEffect(() => {
+    const allowedDurations = providerConfig.durations as readonly number[];
+    if (!allowedDurations.includes(duration)) {
+      setDuration(allowedDurations[0]);
+    }
+  }, [providerConfig, duration]);
+
+  useEffect(() => {
+    if (provider === "fal") {
+      const options = PROVIDER_CONFIG.fal.resolutions;
+      if (!options.includes(falResolution)) {
+        setFalResolution(options[0]);
+      }
+    }
+  }, [provider, falResolution]);
+
+  useEffect(() => {
+    if (provider === "wavespeed") {
+      const catalog = PROVIDER_CONFIG.wavespeed.sizesByAspect;
+      const options =
+        catalog[aspectRatio] ?? catalog[PROVIDER_CONFIG.wavespeed.aspectRatios[0]];
+      if (!options.includes(wavespeedSize)) {
+        setWavespeedSize(options[0]);
+      }
+    }
+  }, [aspectRatio, provider, wavespeedSize]);
+
+  useEffect(() => {
+    if (!file) {
+      setProductPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setProductPreviewUrl(objectUrl);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [file]);
+
+  const featuredJob = useMemo(() => {
+    if (!jobs.length) return null;
+    const completed = jobs.find(
+      (job) => job.status === "completed" && Boolean(job.video_url),
+    );
+    return completed ?? jobs[0];
+  }, [jobs]);
+
+  const featuredVideoUrl = featuredJob?.video_url ?? null;
+  const featuredVideoStatus = featuredJob?.status ?? null;
+  const featuredVideoPrompt = featuredJob?.prompt ?? null;
 
   useEffect(() => {
     if (!loading && !session) {
@@ -278,13 +427,28 @@ export default function Dashboard() {
       return;
     }
 
+    const payload: Record<string, unknown> = {
+      prompt,
+      assetPath: path,
+      durationSeconds: duration,
+      aspectRatio,
+      model,
+      provider,
+    };
+
+    if (provider === "fal") {
+      payload.resolution = falResolution;
+    }
+    if (provider === "wavespeed") {
+      payload.size =
+        wavespeedSize ??
+        PROVIDER_CONFIG.wavespeed.sizesByAspect[aspectRatio]?.[0] ??
+        PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0];
+    }
+
     const response = await authFetch("/api/sora/jobs", {
       method: "POST",
-      body: JSON.stringify({
-        prompt,
-        assetPath: path,
-        durationSeconds: duration,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -305,7 +469,20 @@ export default function Dashboard() {
     );
     setPrompt("");
     setFile(null);
-    setDuration(defaultDuration);
+    const resetDuration = (providerConfig.durations as readonly number[])[0];
+    const resetAspect =
+      (providerConfig.aspectRatios as readonly AspectRatioOption[])[0];
+    setDuration(resetDuration);
+    setAspectRatio(resetAspect);
+    if (provider === "fal") {
+      setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
+    }
+    if (provider === "wavespeed") {
+      const catalog = PROVIDER_CONFIG.wavespeed.sizesByAspect;
+      const nextSize =
+        catalog[resetAspect] ?? catalog[PROVIDER_CONFIG.wavespeed.aspectRatios[0]];
+      setWavespeedSize(nextSize[0]);
+    }
     const uploadInput = document.getElementById(
       "product-file",
     ) as HTMLInputElement | null;
@@ -426,107 +603,419 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid gap-10 lg:grid-cols-[1.8fr_1fr]">
-          <form onSubmit={handleSubmit} className="glass-surface rounded-[28px] border border-border/60 p-8">
-            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Sora2 pipeline</p>
-                <h2 className="text-2xl font-semibold text-foreground">Launch a generation</h2>
-              </div>
-              <p className="text-xs text-muted-foreground">Charged on submit • Auto refund if job fails • {perRunLabel}</p>
-            </div>
-
-            <div className="mt-8 grid gap-6">
-              <label className="text-sm text-muted-foreground">
-                Product image
-                <div className="mt-2 rounded-3xl border border-dashed border-border/70 bg-secondary/40 p-5">
-                  <input
-                    id="product-file"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={handleUpload}
-                    className="w-full cursor-pointer text-sm text-muted-foreground file:mr-4 file:rounded-full file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-primary-foreground file:transition file:hover:bg-primary/30"
-                  />
-                  <p className="mt-2 text-xs text-muted-foreground/80">Max 10MB • JPG/PNG/WebP</p>
+        <section className="flex flex-col">
+          <form
+            onSubmit={handleSubmit}
+            className="glass-surface rounded-[28px] border border-border/60 p-8"
+          >
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                    Sora2 pipeline
+                  </p>
+                  <h2 className="text-2xl font-semibold text-foreground">Launch a generation</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Charged on submit • Auto refund if job fails • {perRunLabel}
+                  </p>
                 </div>
-              </label>
+                <div className="flex items-center gap-2 self-start rounded-full border border-border/70 bg-secondary/40 p-1 text-xs">
+                  {ASPECT_RATIO_OPTIONS.map((option) => {
+                    const isActive = aspectRatio === option;
+                    return (
+                      <button
+                        type="button"
+                        key={option}
+                        onClick={() => setAspectRatio(option)}
+                        aria-pressed={isActive}
+                        className={`rounded-full px-4 py-2 font-semibold transition ${
+                          isActive
+                            ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-              <label className="text-sm text-muted-foreground">
-                Prompt
-                <textarea
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="Example: Creator unboxes product, shows 3 hero shots, ends with CTA overlay."
-                  rows={4}
-                  className="mt-2 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
-                />
-              </label>
+              <div className="space-y-4">
+                <div className="relative">
+                  <div
+                    className={`relative mx-auto flex w-full items-center justify-center overflow-hidden rounded-[32px] border border-border/60 bg-secondary/40 shadow-lg shadow-primary/20 ${
+                      aspectRatio === "16:9"
+                        ? "aspect-video max-w-5xl"
+                        : "aspect-[9/16] max-w-sm sm:max-w-md"
+                    }`}
+                  >
+                    {featuredVideoUrl ? (
+                      <video
+                        key={featuredVideoUrl}
+                        src={featuredVideoUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : productPreviewUrl ? (
+                      <Image
+                        src={productPreviewUrl}
+                        alt="Product preview"
+                        fill
+                        sizes="(min-width: 1024px) 800px, 100vw"
+                        unoptimized
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-3 text-center">
+                        <div className="rounded-full bg-primary/10 p-6">
+                          <Sparkles className="h-10 w-10 text-primary" />
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Upload a product image and refine your prompt to preview the vibe.
+                        </p>
+                      </div>
+                    )}
 
-              <label className="text-sm text-muted-foreground">
-                Video duration
-                <select
-                  value={duration}
-                  onChange={(event) => setDuration(Number(event.target.value))}
-                  className="mt-2 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
-                >
-                  {DURATION_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{`${option} seconds`}</option>
-                  ))}
-                </select>
-              </label>
+                    {isSubmitting ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/50 backdrop-blur-sm">
+                        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                        <p className="text-xs text-muted-foreground">Queuing your job…</p>
+                      </div>
+                    ) : null}
+                  </div>
+                  {featuredVideoStatus ? (
+                    <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground backdrop-blur">
+                      {featuredVideoStatus.replace(/_/g, " ")}
+                    </div>
+                  ) : null}
+                </div>
+                {featuredVideoPrompt ? (
+                  <p className="text-xs text-muted-foreground">
+                    Last prompt: <span className="text-foreground">{featuredVideoPrompt}</span>
+                  </p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Inference via <span className="text-foreground">{providerConfig.label}</span>
+                  {" · "}
+                  Model slug{" "}
+                  <code className="ml-1 rounded bg-secondary/60 px-2 py-1 text-[0.65rem] text-muted-foreground">
+                    {providerSlug}
+                  </code>
+                </p>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[minmax(260px,0.8fr)_minmax(340px,1.4fr)]">
+                <div className="rounded-3xl border border-border/60 bg-secondary/40 p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">
+                        Product placement
+                      </p>
+                      <h3 className="text-lg font-semibold text-foreground">Upload product shot</h3>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    PNG or JPG up to 10MB. We auto-crop and center in the video frame.
+                  </p>
+
+                  <div className="mt-6 flex items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border/50 bg-background/50">
+                      {productPreviewUrl ? (
+                        <Image
+                          src={productPreviewUrl}
+                          alt="Selected product preview"
+                          width={64}
+                          height={64}
+                          unoptimized
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <Sparkles className="h-6 w-6 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <p>{file ? file.name : "No file selected"}</p>
+                      <p>
+                        {file
+                          ? `${Math.round(file.size / 1024)} KB`
+                          : "Drop a product mockup to get started."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <label
+                      htmlFor="product-file"
+                      className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                    >
+                      Upload image
+                      <input
+                        id="product-file"
+                        name="product-file"
+                        className="hidden"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUpload}
+                      />
+                    </label>
+                    {file ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFile(null);
+                          setProductPreviewUrl(null);
+                          const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
+                          if (uploadInput) uploadInput.value = "";
+                        }}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-5 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label htmlFor="prompt" className="text-sm font-semibold text-foreground">
+                      Prompt
+                    </label>
+                    <textarea
+                      id="prompt"
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                      placeholder="Describe the scene, movement, camera notes, and product callouts."
+                      rows={4}
+                      className="mt-3 w-full rounded-3xl border border-border/70 bg-secondary/40 px-5 py-4 text-sm text-foreground outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/40"
+                    />
+                    <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                      <span>Keep it short—Sora leans on the product shot.</span>
+                      <span>{prompt.length}/320</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                        Duration
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(providerConfig.durations as readonly number[]).map((option) => {
+                          const isActive = duration === option;
+                          return (
+                            <button
+                              type="button"
+                              key={option}
+                              onClick={() => setDuration(option)}
+                              aria-pressed={isActive}
+                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                isActive
+                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
+                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              {option}s
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                        Model
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {MODEL_OPTIONS.map((option) => {
+                          const isActive = model === option.value;
+                          return (
+                            <button
+                              type="button"
+                              key={option.value}
+                              onClick={() => setModel(option.value)}
+                              aria-pressed={isActive}
+                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                isActive
+                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
+                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {MODEL_OPTIONS.find((option) => option.value === model)?.helper}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                        Aspect ratio
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
+                          const isActive = aspectRatio === option;
+                          return (
+                            <button
+                              type="button"
+                              key={option}
+                              onClick={() => setAspectRatio(option)}
+                              aria-pressed={isActive}
+                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                isActive
+                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
+                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                        Provider
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {PROVIDER_OPTIONS.map((option) => {
+                          const isActive = provider === option.value;
+                          return (
+                            <button
+                              type="button"
+                              key={option.value}
+                              onClick={() => setProvider(option.value)}
+                              aria-pressed={isActive}
+                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                isActive
+                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
+                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {providerConfig.helper}
+                      </p>
+                      {provider === "fal" ? (
+                        <div className="space-y-1">
+                          <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
+                            Resolution
+                          </p>
+                          <select
+                            value={falResolution}
+                            onChange={(event) =>
+                              setFalResolution(
+                                event.target.value as (typeof PROVIDER_CONFIG.fal.resolutions)[number],
+                              )
+                            }
+                            className="w-full rounded-full border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          >
+                            {PROVIDER_CONFIG.fal.resolutions.map((option) => (
+                              <option key={option} value={option}>
+                                {option === "auto" ? "Auto (provider default)" : option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
+                            Frame size
+                          </p>
+                          <select
+                            value={wavespeedSize}
+                            onChange={(event) => setWavespeedSize(event.target.value)}
+                            className="w-full rounded-full border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          >
+                            {(PROVIDER_CONFIG.wavespeed.sizesByAspect[aspectRatio] ??
+                              PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"]).map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <p>Includes product tracking + color correction.</p>
+                      <p>
+                        Credits left:
+                        {" "}
+                        <span className="font-semibold text-foreground">
+                          {balance === null ? "--" : balance}
+                        </span>
+                        {" "}· Cost this run: {creditCostPerRun} credits
+                      </p>
+                      {isLowBalance ? (
+                        <p className="text-amber-300">
+                          Balance below requirement. Add credits before launching the next job.
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                        disabled={isSubmitting || isLowBalance}
+                      >
+                        {isLowBalance
+                          ? `Add credits first (${perRunLabel})`
+                          : isSubmitting
+                            ? "Queuing job…"
+                            : `Generate with ${selectedModelLabel}`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrompt("");
+                          setFile(null);
+                          setProvider(DEFAULT_PROVIDER);
+                          setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
+                          setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
+                          setModel(MODEL_OPTIONS[0].value);
+                          setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
+                          setWavespeedSize(PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0]);
+                          setMessage(null);
+                          setMessageTone("neutral");
+                          const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
+                          if (uploadInput) uploadInput.value = "";
+                        }}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  {message ? (
+                    <p
+                      className={`text-sm ${
+                        messageTone === "error" ? "text-red-400" : "text-primary"
+                      }`}
+                    >
+                      {message}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             </div>
-
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                type="submit"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                disabled={isSubmitting || isLowBalance}
-              >
-                {isLowBalance ? `Add credits first (${perRunLabel})` : isSubmitting ? "Queuing job…" : "Generate with Sora2"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPrompt("");
-                  setFile(null);
-                  const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
-                  if (uploadInput) uploadInput.value = "";
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-              >
-                Reset
-              </button>
-            </div>
-
-            {message && (
-              <p
-                className={`mt-5 text-sm ${
-                  messageTone === "error" ? "text-red-400" : "text-primary"
-                }`}
-              >
-                {message}
-              </p>
-            )}
           </form>
-
-          <aside className="glass-surface rounded-[28px] border border-border/60 p-8">
-            <h3 className="text-lg font-semibold text-foreground">Runbook</h3>
-            <ul className="mt-5 space-y-4 text-sm text-muted-foreground">
-              <li>• Credit ledger writes happen inside a single transaction with the job enqueue.</li>
-              <li>
-                • Policy failures stream back as <code>status: &quot;policy_blocked&quot;</code> and trigger refunds.
-              </li>
-              <li>• Signed download URLs expire after 24h; regenerate to refresh.</li>
-              <li>• Automation secret seeds sessions for Playwright productions runs.</li>
-            </ul>
-            <button
-              type="button"
-              onClick={refreshJobs}
-              className="mt-6 inline-flex items-center gap-2 rounded-full border border-border/70 px-5 py-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
-            >
-              Refresh jobs
-            </button>
-          </aside>
         </section>
 
         <section className="glass-surface rounded-[28px] border border-border/60 p-8">
@@ -535,7 +1024,16 @@ export default function Dashboard() {
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Activity</p>
               <h2 className="text-2xl font-semibold text-foreground">Recent jobs</h2>
             </div>
-            <p className="text-xs text-muted-foreground">Latest 20 runs pulled directly from Supabase.</p>
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground md:items-end">
+              <p>Latest 20 runs pulled directly from Supabase.</p>
+              <button
+                type="button"
+                onClick={refreshJobs}
+                className="inline-flex items-center gap-2 self-start rounded-full border border-border/70 px-5 py-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground md:self-auto"
+              >
+                Refresh jobs
+              </button>
+            </div>
           </div>
 
           <div className="mt-6 space-y-4">

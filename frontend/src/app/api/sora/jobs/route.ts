@@ -3,6 +3,9 @@ import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/service-client";
 import { pushLedger, upsertJob, sumLedgerForUser } from "@/lib/mock-store";
 
+const ModelSchema = z.enum(["sora2", "sora2-pro"]);
+const AspectRatioSchema = z.enum(["16:9", "9:16"]);
+
 const requestSchema = z.object({
   prompt: z.string().min(8, "Prompt is too short."),
   assetPath: z.string().min(4, "Upload path missing."),
@@ -12,11 +15,20 @@ const requestSchema = z.object({
     .min(5)
     .max(60)
     .optional(),
+  aspectRatio: AspectRatioSchema.optional(),
+  model: ModelSchema.optional(),
 });
 
 const CREDIT_COST = Number(process.env.SORA_CREDIT_COST ?? 5);
 const FAL_MODEL =
   process.env.FAL_SORA_MODEL_ID ?? "fal-ai/sora-2/image-to-video";
+const FAL_MODEL_PRO =
+  process.env.FAL_SORA_PRO_MODEL_ID ?? "fal-ai/sora-2-pro/image-to-video";
+type ModelValue = z.infer<typeof ModelSchema>;
+const MODEL_TO_ID: Record<ModelValue, string> = {
+  sora2: FAL_MODEL,
+  "sora2-pro": FAL_MODEL_PRO,
+};
 const FAL_DURATION_SECONDS = Number(
   process.env.FAL_VIDEO_DURATION_SECONDS ?? 20,
 );
@@ -56,7 +68,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { prompt, assetPath, durationSeconds } = body.data;
+  const {
+    prompt,
+    assetPath,
+    durationSeconds,
+    model: requestedModel,
+    aspectRatio: requestedAspectRatio,
+  } = body.data;
+  const modelKey: ModelValue = requestedModel ?? "sora2";
+  const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
+  const aspectRatio = requestedAspectRatio ?? "16:9";
   const automationSecret = process.env.AUTOMATION_SECRET;
   const isAutomation =
     automationSecret &&
@@ -248,10 +269,11 @@ export async function POST(request: NextRequest) {
       image_url: signedUrl,
       reference_image_url: signedUrl,
       duration: selectedDuration,
-      aspect_ratio: "16:9",
+      aspect_ratio: aspectRatio,
+      model: modelKey,
     };
 
-    const modelPath = FAL_MODEL.replace(/^https?:\/\//, "").replace(
+    const modelPath = selectedModelId.replace(/^https?:\/\//, "").replace(
       /^queue\.fal\.run\//,
       "",
     );
