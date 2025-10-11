@@ -312,12 +312,20 @@ test('live genvidsfast flow', async ({ page, context }) => {
   balanceValue -= creditsPerRun;
   await expectBalanceValue(balanceValue);
 
-  const lowBalanceWarning = page.getByText(/Balance low/i);
+  await expect(
+    page.getByTestId('pricing-summary'),
+  ).toContainText(new RegExp(`${creditsPerRun}\\s+credits/run`, 'i'));
+
+  const lowBalanceWarning = page.getByText(
+    new RegExp(`Balance below\\s+${creditsPerRun}\\s+credits`, 'i'),
+  );
   await expect(lowBalanceWarning).toBeVisible();
 
   const generateButton = page.getByRole('button', {
-    name: /(Generate with Sora2|Add credits first)/i,
+    name: /Add credits first/i,
   });
   await expect(generateButton).toBeDisabled();
-  await expect(generateButton).toHaveText(/Add credits first/i);
+  await expect(generateButton).toHaveText(
+    new RegExp(`Add credits first \\(${creditsPerRun}\\s+credits/run`, 'i'),
+  );
 });

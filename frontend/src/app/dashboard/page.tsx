@@ -37,12 +37,6 @@ const soraResponseSchema = z.object({
   status: z.string(),
 });
 
-const DEFAULT_CREDIT_COST = Number(
-  process.env.NEXT_PUBLIC_SORA_CREDIT_COST ??
-    process.env.SORA_CREDIT_COST ??
-    5,
-);
-
 const ENV_DURATION_OPTIONS = (process.env
   .NEXT_PUBLIC_FAL_DURATION_OPTIONS?.split(",") || [])
   .map((value) => Number(value.trim()))
@@ -66,13 +60,16 @@ export default function Dashboard() {
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
   const [isFetching, setIsFetching] = useState(false);
 
+  const pricingSummary = useMemo(() => getPricingSummary(), []);
+  const creditCostPerRun = pricingSummary.creditCostPerRun;
+  const runPriceUsd = pricingSummary.runPriceUsd;
+  const packLabel = `${pricingSummary.creditsPerPack} credits ($${pricingSummary.packPriceUsd.toFixed(0)})`;
+  const perRunLabel = `${creditCostPerRun} credits/run (~$${runPriceUsd.toFixed(2)})`;
+
   const isLowBalance = useMemo(() => {
     if (balance === null) return false;
-    return balance < DEFAULT_CREDIT_COST;
-  }, [balance]);
-
-  const pricingSummary = useMemo(() => getPricingSummary(), []);
-  const packLabel = `$${pricingSummary.packPriceUsd.toFixed(0)} pack`;
+    return balance < creditCostPerRun;
+  }, [balance, creditCostPerRun]);
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -166,7 +163,7 @@ export default function Dashboard() {
       credit_cost:
         typeof job.credit_cost === "number"
           ? job.credit_cost
-          : Number(job.credit_cost ?? DEFAULT_CREDIT_COST),
+          : Number(job.credit_cost ?? creditCostPerRun),
     }));
     const parsed = jobsResponseSchema.parse(parsedList);
 
@@ -186,7 +183,7 @@ export default function Dashboard() {
     );
 
     setJobs(upgraded);
-  }, [authFetch, session?.user?.id, supabase]);
+  }, [authFetch, creditCostPerRun, session?.user?.id, supabase]);
 
   useEffect(() => {
     if (!session || !supabase) return;
@@ -398,12 +395,16 @@ export default function Dashboard() {
               </p>
               {isLowBalance ? (
                 <p className="mt-1 text-xs text-amber-300">
-                  Balance low. Top up before launching the next job.
+                  Balance below {creditCostPerRun} credits (~${runPriceUsd.toFixed(2)}). Add credits before launching the next job.
                 </p>
               ) : null}
             </div>
-            <div className="space-y-1 text-right text-xs text-muted-foreground">
-              <p>{packLabel} = {pricingSummary.runsPerPack.toFixed(0)} runs (~${pricingSummary.runPriceUsd.toFixed(2)} each)</p>
+            <div
+              className="space-y-1 text-right text-xs text-muted-foreground"
+              data-testid="pricing-summary"
+            >
+              <p>{packLabel} = {pricingSummary.runsPerPack.toFixed(0)} runs ({perRunLabel})</p>
+              <p>Gross margin ≈{Math.round(pricingSummary.grossMarginPercent)}% after Stripe + provider costs.</p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
@@ -432,7 +433,7 @@ export default function Dashboard() {
                 <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Sora2 pipeline</p>
                 <h2 className="text-2xl font-semibold text-foreground">Launch a generation</h2>
               </div>
-              <p className="text-xs text-muted-foreground">Charged on submit • Auto refund if job fails</p>
+              <p className="text-xs text-muted-foreground">Charged on submit • Auto refund if job fails • {perRunLabel}</p>
             </div>
 
             <div className="mt-8 grid gap-6">
@@ -481,7 +482,7 @@ export default function Dashboard() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
                 disabled={isSubmitting || isLowBalance}
               >
-                {isLowBalance ? "Add credits first" : isSubmitting ? "Queuing job…" : "Generate with Sora2"}
+                {isLowBalance ? `Add credits first (${perRunLabel})` : isSubmitting ? "Queuing job…" : "Generate with Sora2"}
               </button>
               <button
                 type="button"

@@ -18,7 +18,7 @@ We need a fully automated Playwright flow that mimics a real buyer from login th
 
 ## Pricing Notes
 - Credit packs stay at $15 for 15 credits (three Sora2 runs per checkout).
-- Each generation deducts 5 credits ($5 revenue) for an 83% gross margin assuming ~$0.40 OpenAI Sora cost and 2.9% + $0.30 Stripe fees per order.
+- Each generation deducts 5 credits ($5 revenue). Stripe collects $0.435 (2.9%) + $0.30 per pack, or ~$0.245 per run, and OpenAI Sora costs ~$0.40 per run. Net per run is $4.36, which delivers ≈87% gross margin on the $15 pack.
 
 ## Non-Goals
 - Building new UI components beyond what the flow needs.
