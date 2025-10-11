@@ -151,9 +151,12 @@ export default function Dashboard() {
   );
 
   const selectedModelLabel = useMemo(() => {
+    if (provider === "wavespeed") {
+      return "Sora2";
+    }
     const match = MODEL_OPTIONS.find((item) => item.value === model);
     return match?.label ?? "Sora2";
-  }, [model]);
+  }, [model, provider]);
 
   const providerSlug = useMemo(() => {
     if (provider === "fal") {
