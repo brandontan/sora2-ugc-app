@@ -118,9 +118,8 @@ export default function Dashboard() {
   const [duration, setDuration] = useState<number>(
     PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0],
   );
-  const [model, setModel] = useState<(typeof MODEL_OPTIONS)[number]["value"]>(
-    MODEL_OPTIONS[0].value,
-  );
+  const [model, setModel] =
+    useState<(typeof MODEL_OPTIONS)[number]["value"]>(MODEL_OPTIONS[0].value);
   const [falResolution, setFalResolution] = useState<
     (typeof PROVIDER_CONFIG.fal.resolutions)[number]
   >(PROVIDER_CONFIG.fal.resolutions[0]);
@@ -145,18 +144,13 @@ export default function Dashboard() {
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
     : null;
 
-  const providerConfig = useMemo(
-    () => PROVIDER_CONFIG[provider],
-    [provider],
-  );
+  const providerConfig = useMemo(() => PROVIDER_CONFIG[provider], [provider]);
+  const isFalProvider = provider === "fal";
 
   const selectedModelLabel = useMemo(() => {
-    if (provider === "wavespeed") {
-      return "Sora2";
-    }
     const match = MODEL_OPTIONS.find((item) => item.value === model);
     return match?.label ?? "Sora2";
-  }, [model, provider]);
+  }, [model]);
 
   const providerSlug = useMemo(() => {
     if (provider === "fal") {
@@ -179,6 +173,12 @@ export default function Dashboard() {
       setDuration(allowedDurations[0]);
     }
   }, [providerConfig, duration]);
+
+  useEffect(() => {
+    if (!isFalProvider && model !== "sora2") {
+      setModel("sora2");
+    }
+  }, [isFalProvider, model]);
 
   useEffect(() => {
     if (provider === "fal") {
@@ -760,95 +760,12 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                        Duration
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {(providerConfig.durations as readonly number[]).map((option) => {
-                          const isActive = duration === option;
-                          return (
-                            <button
-                              type="button"
-                              key={option}
-                              onClick={() => setDuration(option)}
-                              aria-pressed={isActive}
-                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                isActive
-                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
-                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              {option}s
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                        Model
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {MODEL_OPTIONS.map((option) => {
-                          const isActive = model === option.value;
-                          return (
-                            <button
-                              type="button"
-                              key={option.value}
-                              onClick={() => setModel(option.value)}
-                              aria-pressed={isActive}
-                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                isActive
-                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
-                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {MODEL_OPTIONS.find((option) => option.value === model)?.helper}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                        Aspect ratio
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
-                          const isActive = aspectRatio === option;
-                          return (
-                            <button
-                              type="button"
-                              key={option}
-                              onClick={() => setAspectRatio(option)}
-                              aria-pressed={isActive}
-                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                isActive
-                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
-                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              {option}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
+                  <div className="space-y-6">
                     <div className="space-y-2">
                       <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
                         Provider
                       </p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 gap-3">
                         {PROVIDER_OPTIONS.map((option) => {
                           const isActive = provider === option.value;
                           return (
@@ -857,10 +774,10 @@ export default function Dashboard() {
                               key={option.value}
                               onClick={() => setProvider(option.value)}
                               aria-pressed={isActive}
-                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                              className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
                                 isActive
-                                  ? "bg-primary text-primary-foreground shadow shadow-primary/30"
-                                  : "border border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                                  ? "border-primary/70 bg-primary/15 text-primary"
+                                  : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
                               }`}
                             >
                               {option.label}
@@ -868,10 +785,8 @@ export default function Dashboard() {
                           );
                         })}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {providerConfig.helper}
-                      </p>
-                      {provider === "fal" ? (
+                      <p className="text-xs text-muted-foreground">{providerConfig.helper}</p>
+                      {isFalProvider ? (
                         <div className="space-y-1">
                           <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
                             Resolution
@@ -883,7 +798,7 @@ export default function Dashboard() {
                                 event.target.value as (typeof PROVIDER_CONFIG.fal.resolutions)[number],
                               )
                             }
-                            className="w-full rounded-full border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                            className="w-full rounded-2xl border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
                           >
                             {PROVIDER_CONFIG.fal.resolutions.map((option) => (
                               <option key={option} value={option}>
@@ -892,61 +807,155 @@ export default function Dashboard() {
                             ))}
                           </select>
                         </div>
-                      ) : null}
+                      ) : (
+                        <p className="text-[0.65rem] text-muted-foreground">
+                          Frame size adjusts automatically for WaveSpeed.ai.
+                        </p>
+                      )}
                     </div>
-                  </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>Includes product tracking + color correction.</p>
-                      <p>
-                        Credits left:
-                        {" "}
-                        <span className="font-semibold text-foreground">
-                          {balance === null ? "--" : balance}
-                        </span>
-                        {" "}· Cost this run: {creditCostPerRun} credits
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                        Model
                       </p>
-                      {isLowBalance ? (
-                        <p className="text-amber-300">
-                          Balance below requirement. Add credits before launching the next job.
+                      <div className="grid grid-cols-2 gap-3">
+                        {MODEL_OPTIONS.map((option) => {
+                          const isActive = model === option.value;
+                          const isDisabled = !isFalProvider && option.value === "sora2-pro";
+                          return (
+                            <button
+                              type="button"
+                              key={option.value}
+                              onClick={() => {
+                                if (!isDisabled) setModel(option.value);
+                              }}
+                              aria-pressed={isActive}
+                              disabled={isDisabled}
+                              className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                isActive
+                                  ? "border-primary/70 bg-primary/15 text-primary"
+                                  : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
+                              } ${isDisabled ? "cursor-not-allowed opacity-40 hover:text-muted-foreground" : ""}`}
+                            >
+                              <span>{option.label}</span>
+                              <span className="text-[10px] font-normal text-muted-foreground">
+                                {option.helper}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {!isFalProvider ? (
+                        <p className="text-[0.65rem] text-muted-foreground">
+                          Sora2 Pro is only available on fal.ai.
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="submit"
-                        className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                        disabled={isSubmitting || isLowBalance}
-                      >
-                        {isLowBalance
-                          ? `Add credits first (${perRunLabel})`
-                          : isSubmitting
-                            ? "Queuing job…"
-                            : `Generate with ${selectedModelLabel}`}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPrompt("");
-                          setFile(null);
-                          setProvider(DEFAULT_PROVIDER);
-                          setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
-                          setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
-                          setModel(MODEL_OPTIONS[0].value);
-                          setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
-                          setMessage(null);
-                          setMessageTone("neutral");
-                          const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
-                          if (uploadInput) uploadInput.value = "";
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-                      >
-                        Reset
-                      </button>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                          Duration
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(providerConfig.durations as readonly number[]).map((option) => {
+                            const isActive = duration === option;
+                            return (
+                              <button
+                                type="button"
+                                key={option}
+                                onClick={() => setDuration(option)}
+                                aria-pressed={isActive}
+                                className={`flex flex-col items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                  isActive
+                                    ? "border-primary/70 bg-primary/15 text-primary"
+                                    : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
+                                }`}
+                              >
+                                <span>{option}s</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                          Aspect ratio
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
+                            const isActive = aspectRatio === option;
+                            return (
+                              <button
+                                type="button"
+                                key={option}
+                                onClick={() => setAspectRatio(option)}
+                                aria-pressed={isActive}
+                                className={`flex flex-col items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                  isActive
+                                    ? "border-primary/70 bg-primary/15 text-primary"
+                                    : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
+                                }`}
+                              >
+                                <span>{option}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border/60 pt-4">
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Cost this run: {perRunLabel}</p>
+                        <p>
+                          Credits available:
+                          {" "}
+                          <span className="font-semibold text-foreground">
+                            {balance === null ? "--" : balance}
+                          </span>
+                        </p>
+                        {isLowBalance ? (
+                          <p className="text-amber-300">
+                            Balance below requirement. Add credits before launching the next job.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="submit"
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                          disabled={isSubmitting || isLowBalance}
+                        >
+                          {isLowBalance
+                            ? `Add credits first (${perRunLabel})`
+                            : isSubmitting
+                              ? "Queuing job…"
+                              : `Generate with ${selectedModelLabel}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPrompt("");
+                            setFile(null);
+                            setProvider(DEFAULT_PROVIDER);
+                            setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
+                            setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
+                            setModel(MODEL_OPTIONS[0].value);
+                            setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
+                            setMessage(null);
+                            setMessageTone("neutral");
+                            const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
+                            if (uploadInput) uploadInput.value = "";
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                        >
+                          Reset
+                        </button>
+                      </div>
                     </div>
                   </div>
-
                   {message ? (
                     <p
                       className={`text-sm ${
