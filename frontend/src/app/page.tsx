@@ -116,7 +116,7 @@ export default function Home() {
             Ultra-fast Sora2 UGC
           </span>
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
-            Product photo <span className="gradient-text">→ Sora video</span>
+            Create UGC Video Ads <span className="gradient-text">that actually Sells</span>
           </h1>
           <div className="mt-10 text-sm text-muted-foreground">
             Already have a code? Enter it below to jump straight into your workspace.
