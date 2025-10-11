@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import { ArrowRight, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
 import { getPricingSummary } from "@/lib/pricing";
@@ -17,6 +17,10 @@ type Job = {
   video_url: string | null;
   created_at: string;
   credit_cost: number;
+  provider_status?: string | null;
+  provider_queue_position?: number | null;
+  provider_last_checked?: string | null;
+  provider_logs?: string[] | null;
 };
 
 const jobSchema = z.object({
@@ -26,6 +30,10 @@ const jobSchema = z.object({
   video_url: z.string().nullable(),
   created_at: z.string(),
   credit_cost: z.number(),
+  provider_status: z.string().nullable().optional(),
+  provider_queue_position: z.number().nullable().optional(),
+  provider_last_checked: z.string().nullable().optional(),
+  provider_logs: z.array(z.string()).nullable().optional(),
 });
 
 const jobsResponseSchema = z
@@ -106,6 +114,50 @@ const DEFAULT_PROVIDER: ProviderKey = "fal";
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
   PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
 
+const formatRelativeTime = (iso: string | null | undefined): string => {
+  if (!iso) return "just now";
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return "just now";
+  const diffMs = Date.now() - timestamp;
+  if (diffMs < 0) return "just now";
+  const diffSeconds = Math.floor(diffMs / 1000);
+  if (diffSeconds < 45) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+};
+
+const describeProviderState = (job: Job | null): string | null => {
+  if (!job?.provider_status) return null;
+  const status = job.provider_status.toUpperCase();
+  const checked = formatRelativeTime(job.provider_last_checked);
+  const queuePosition =
+    typeof job.provider_queue_position === "number"
+      ? job.provider_queue_position
+      : null;
+
+  switch (status) {
+    case "IN_QUEUE":
+      if (queuePosition !== null) {
+        return `In queue · position ${queuePosition} (checked ${checked})`;
+      }
+      return `In queue (checked ${checked})`;
+    case "IN_PROGRESS":
+      return `Rendering with provider (checked ${checked})`;
+    case "COMPLETED":
+      return `Provider finished (checked ${checked})`;
+    case "FAILED":
+      return `Provider reported a failure (checked ${checked})`;
+    case "CANCELLATION_REQUESTED":
+      return `Cancellation requested at provider (checked ${checked})`;
+    default:
+      return `Provider status: ${job.provider_status} (checked ${checked})`;
+  }
+};
+
 export default function Dashboard() {
   const { supabase, session, loading, profile, profileLoading } = useSupabase();
   const router = useRouter();
@@ -130,12 +182,32 @@ export default function Dashboard() {
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
   const [isFetching, setIsFetching] = useState(false);
   const [productPreviewUrl, setProductPreviewUrl] = useState<string | null>(null);
+  const [cancellingJobIds, setCancellingJobIds] = useState<Record<string, boolean>>({});
+
+  const resetFormState = useCallback(() => {
+    console.log("[dashboard] resetFormState invoked");
+    setPrompt("");
+    setFile(null);
+    setProductPreviewUrl(null);
+    setProvider(DEFAULT_PROVIDER);
+    setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
+    setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
+    setModel(MODEL_OPTIONS[0].value);
+    setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
+    setMessage(null);
+    setMessageTone("neutral");
+    setIsSubmitting(false);
+    setCancellingJobIds({});
+    const uploadInput = document.getElementById(
+      "product-file",
+    ) as HTMLInputElement | null;
+    if (uploadInput) uploadInput.value = "";
+  }, []);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
   const creditCostPerRun = pricingSummary.creditCostPerRun;
-  const runPriceUsd = pricingSummary.runPriceUsd;
-  const packLabel = `${pricingSummary.creditsPerPack} credits ($${pricingSummary.packPriceUsd.toFixed(0)})`;
-  const perRunLabel = `${creditCostPerRun} credits/run (~$${runPriceUsd.toFixed(2)})`;
+  const packLabel = `${pricingSummary.creditsPerPack} credits`;
+  const perRunLabel = `${creditCostPerRun} credits/run`;
 
   const isLowBalance = useMemo(() => {
     if (balance === null) return false;
@@ -153,14 +225,6 @@ export default function Dashboard() {
     const match = MODEL_OPTIONS.find((item) => item.value === model);
     return match?.label ?? "Sora2";
   }, [model]);
-
-  const providerSlug = useMemo(() => {
-    if (provider === "fal") {
-      const safeModel = model === "sora2-pro" ? "sora2-pro" : "sora2";
-      return PROVIDER_CONFIG.fal.slug(safeModel);
-    }
-    return PROVIDER_CONFIG.wavespeed.slug();
-  }, [model, provider]);
 
   useEffect(() => {
     const allowed = providerConfig.aspectRatios as readonly AspectRatioOption[];
@@ -205,21 +269,54 @@ export default function Dashboard() {
 
   const featuredJob = useMemo(() => {
     if (!jobs.length) return null;
-    const completed = jobs.find(
+    const activeStatuses = new Set([
+      "processing",
+      "queued",
+      "queueing",
+      "pending",
+      "submitted",
+      "in_progress",
+      "started",
+    ]);
+
+    const activeJob = jobs.find((job) => activeStatuses.has(job.status));
+    if (activeJob) return activeJob;
+
+    const completedJob = jobs.find(
       (job) => job.status === "completed" && Boolean(job.video_url),
     );
-    return completed ?? jobs[0];
+    if (completedJob) return completedJob;
+
+    return null;
   }, [jobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
-  const featuredVideoStatus = featuredJob?.status ?? null;
-  const featuredVideoPrompt = featuredJob?.prompt ?? null;
+  const featuredVideoStatus = featuredJob
+    ? ["cancelled", "cancelled_user", "failed", "policy_blocked"].includes(
+        featuredJob.status,
+      )
+      ? null
+      : featuredJob.status
+    : null;
+  const isFeaturedFinal = featuredJob
+    ? ["completed", "failed", "cancelled", "cancelled_user", "policy_blocked"].includes(
+        featuredJob.status,
+      )
+    : false;
+  const isFeaturedCancellable = featuredJob ? !isFeaturedFinal : false;
+  const isFeaturedCancelling = featuredJob
+    ? Boolean(cancellingJobIds[featuredJob.id])
+    : false;
+  const featuredProviderSummary = describeProviderState(featuredJob);
 
   useEffect(() => {
     if (!loading && !session) {
+      resetFormState();
+      setBalance(null);
+      setJobs([]);
       router.replace("/");
     }
-  }, [loading, session, router]);
+  }, [loading, session, router, resetFormState]);
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -290,6 +387,7 @@ export default function Dashboard() {
     }
 
     const jobsData = data as Array<Record<string, unknown>>;
+    console.log("[dashboard] refreshJobs", jobsData);
     const parsedList = jobsData.map((job) => ({
       id: typeof job.id === "string" ? job.id : crypto.randomUUID(),
       prompt: typeof job.prompt === "string" ? job.prompt : "",
@@ -304,6 +402,21 @@ export default function Dashboard() {
         typeof job.credit_cost === "number"
           ? job.credit_cost
           : Number(job.credit_cost ?? creditCostPerRun),
+      provider_status:
+        typeof job.provider_status === "string"
+          ? job.provider_status
+          : null,
+      provider_queue_position:
+        typeof job.provider_queue_position === "number"
+          ? job.provider_queue_position
+          : null,
+      provider_last_checked:
+        typeof job.provider_last_checked === "string"
+          ? job.provider_last_checked
+          : null,
+      provider_logs: Array.isArray(job.provider_logs)
+        ? (job.provider_logs.filter((item) => typeof item === "string") as string[])
+        : null,
     }));
     const parsed = jobsResponseSchema.parse(parsedList);
 
@@ -322,8 +435,71 @@ export default function Dashboard() {
       }),
     );
 
+    console.log("[dashboard] upgradedJobs", upgraded);
     setJobs(upgraded);
   }, [authFetch, creditCostPerRun, session?.user?.id, supabase]);
+
+  const handleCancelJob = useCallback(
+    async (jobId: string) => {
+      console.log("[dashboard] handleCancelJob", { jobId });
+      setCancellingJobIds((prev) => ({ ...prev, [jobId]: true }));
+      try {
+        const response = await authFetch(`/api/sora/jobs/${jobId}`, {
+          method: "DELETE",
+        });
+
+        console.log("[dashboard] cancel response", {
+          jobId,
+          ok: response.ok,
+          status: response.status,
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          console.log("[dashboard] cancel error payload", payload);
+          const reason =
+            typeof payload?.error?.message === "string"
+              ? payload.error.message
+              : "Could not cancel the job. Try again.";
+          setMessageTone("error");
+          setMessage(reason);
+          return;
+        }
+
+        const payload = await response.json().catch(() => null);
+        console.log("[dashboard] cancel success payload", payload);
+        const parsed = payload?.job ? jobSchema.safeParse(payload.job) : null;
+
+        if (parsed?.success) {
+          setJobs((prev) =>
+            prev.map((job) => (job.id === jobId ? parsed.data : job)),
+          );
+        } else {
+          setJobs((prev) =>
+            prev.map((job) =>
+              job.id === jobId
+                ? { ...job, status: "cancelled_user" }
+                : job,
+            ),
+          );
+        }
+
+        setMessageTone("neutral");
+        setMessage("Job cancelled. Credits stay reserved for this run.");
+        await Promise.all([refreshBalance(), refreshJobs()]);
+      } catch {
+        setMessageTone("error");
+        setMessage("Network error cancelling job.");
+      } finally {
+        setCancellingJobIds((prev) => {
+          const next = { ...prev };
+          delete next[jobId];
+          return next;
+        });
+      }
+    },
+    [authFetch, refreshBalance, refreshJobs],
+  );
 
   useEffect(() => {
     if (!session || !supabase) return;
@@ -557,17 +733,11 @@ export default function Dashboard() {
               </p>
               {isLowBalance ? (
                 <p className="mt-1 text-xs text-amber-300">
-                  Balance below {creditCostPerRun} credits (~${runPriceUsd.toFixed(2)}). Add credits before launching the next job.
+                  Balance below {creditCostPerRun} credits. Add credits before launching the next job.
                 </p>
               ) : null}
             </div>
-            <div
-              className="space-y-1 text-right text-xs text-muted-foreground"
-              data-testid="pricing-summary"
-            >
-              <p>{packLabel} = {pricingSummary.runsPerPack.toFixed(0)} runs ({perRunLabel})</p>
-              <p>Gross margin ≈{Math.round(pricingSummary.grossMarginPercent)}% after Stripe + provider costs.</p>
-            </div>
+            <div className="space-y-1 text-right text-xs text-muted-foreground" />
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <button
@@ -656,21 +826,36 @@ export default function Dashboard() {
                       {featuredVideoStatus.replace(/_/g, " ")}
                     </div>
                   ) : null}
+                  {isFeaturedCancellable ? (
+                    <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => featuredJob && handleCancelJob(featuredJob.id)}
+                        disabled={isFeaturedCancelling}
+                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isFeaturedCancelling ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Cancelling…
+                          </>
+                        ) : (
+                          "Cancel job"
+                        )}
+                      </button>
+                      <span className="rounded-full bg-background/70 px-3 py-1 text-[0.65rem] text-muted-foreground">
+                        Cancelling now keeps credits for this run.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-                {featuredVideoPrompt ? (
-                  <p className="text-xs text-muted-foreground">
-                    Last prompt: <span className="text-foreground">{featuredVideoPrompt}</span>
-                  </p>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  Inference via <span className="text-foreground">{providerConfig.label}</span>
-                  {" · "}
-                  Model slug{" "}
-                  <code className="ml-1 rounded bg-secondary/60 px-2 py-1 text-[0.65rem] text-muted-foreground">
-                    {providerSlug}
-                  </code>
-                </p>
               </div>
+
+              {featuredProviderSummary ? (
+                <p className="text-xs text-muted-foreground">
+                  {featuredProviderSummary}
+                </p>
+              ) : null}
 
               <div className="grid gap-6 lg:grid-cols-[minmax(260px,0.8fr)_minmax(340px,1.4fr)]">
                 <div className="rounded-3xl border border-border/60 bg-secondary/40 p-6">
@@ -686,7 +871,7 @@ export default function Dashboard() {
                     PNG or JPG up to 10MB. We auto-crop and center in the video frame.
                   </p>
 
-                  <div className="mt-6 flex items-center gap-4">
+                    <div className="mt-6 flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border/50 bg-background/50">
                       {productPreviewUrl ? (
                         <Image
@@ -735,8 +920,10 @@ export default function Dashboard() {
                           const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
                           if (uploadInput) uploadInput.value = "";
                         }}
-                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-5 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                        aria-label="Remove product image"
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
                       >
+                        <Trash2 className="h-4 w-4" />
                         Remove
                       </button>
                     ) : null}
@@ -935,19 +1122,7 @@ export default function Dashboard() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setPrompt("");
-                            setFile(null);
-                            setProvider(DEFAULT_PROVIDER);
-                            setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
-                            setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
-                            setModel(MODEL_OPTIONS[0].value);
-                            setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
-                            setMessage(null);
-                            setMessageTone("neutral");
-                            const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
-                            if (uploadInput) uploadInput.value = "";
-                          }}
+                          onClick={resetFormState}
                           className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 px-6 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
                         >
                           Reset
@@ -974,10 +1149,10 @@ export default function Dashboard() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Activity</p>
-              <h2 className="text-2xl font-semibold text-foreground">Recent jobs</h2>
+              <h2 className="text-2xl font-semibold text-foreground">Latest 5 runs</h2>
             </div>
             <div className="flex flex-col gap-2 text-xs text-muted-foreground md:items-end">
-              <p>Latest 20 runs pulled directly from Supabase.</p>
+              <p>Keep an eye on your most recent generations.</p>
               <button
                 type="button"
                 onClick={refreshJobs}
@@ -994,10 +1169,22 @@ export default function Dashboard() {
                 No jobs yet. Launch your first Sora2 generation to populate this feed.
               </div>
             ) : (
-              jobs.map((job) => {
+              jobs.slice(0, 5).map((job) => {
                 const createdAt = new Date(job.created_at).toLocaleString();
-                const statusLabel = job.status.replace(/_/g, " ");
+                const statusLabel =
+                  job.status === "cancelled_user"
+                    ? "cancelled"
+                    : job.status.replace(/_/g, " ");
                 const isComplete = job.status === "completed" && Boolean(job.video_url);
+                const isFinalStatus =
+                  job.status === "completed" ||
+                  job.status === "failed" ||
+                  job.status === "cancelled" ||
+                  job.status === "cancelled_user" ||
+                  job.status === "policy_blocked";
+                const isCancellable = !isFinalStatus;
+                const isCancelling = Boolean(cancellingJobIds[job.id]);
+                const providerSummary = describeProviderState(job);
                 return (
                   <div
                     key={job.id}
@@ -1019,7 +1206,7 @@ export default function Dashboard() {
                               ? "bg-primary/15 text-primary"
                               : job.status === "policy_blocked"
                                 ? "bg-red-500/15 text-red-300"
-                                : "bg-border/40 text-muted-foreground"
+                              : "bg-border/40 text-muted-foreground"
                         }`}
                       >
                         {statusLabel}
@@ -1034,6 +1221,39 @@ export default function Dashboard() {
                           Download MP4
                           <ArrowRight className="h-3 w-3" />
                         </a>
+                      ) : isCancellable ? (
+                        <div className="flex flex-col items-start gap-2 md:items-end">
+                          <button
+                            type="button"
+                            onClick={() => handleCancelJob(job.id)}
+                            disabled={isCancelling}
+                            className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isCancelling ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Cancelling…
+                              </>
+                            ) : (
+                              "Cancel job"
+                            )}
+                          </button>
+                          <span className="text-xs text-muted-foreground">
+                            {providerSummary
+                              ? providerSummary
+                              : job.status === "processing"
+                                ? "Rendering in provider—cancelling will still use the credits."
+                                : "Queued today—cancelling keeps credits for this run."}
+                          </span>
+                        </div>
+                      ) : job.status === "cancelled" ? (
+                        <span className="text-xs text-muted-foreground">Cancelled. Credits returned.</span>
+                      ) : job.status === "cancelled_user" ? (
+                        <span className="text-xs text-muted-foreground">Cancelled early. Credits remain used.</span>
+                      ) : job.status === "cancelled_user" ? (
+                        <span className="text-xs text-muted-foreground">Cancelled early. Credits remain used.</span>
+                      ) : job.status === "failed" ? (
+                        <span className="text-xs text-muted-foreground">Generation failed. Credits already refunded.</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
                           {job.status === "processing" ? "Sora2 is rendering…" : "Awaiting next update"}

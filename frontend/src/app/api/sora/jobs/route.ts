@@ -4,6 +4,7 @@ import { getServiceClient } from "@/lib/supabase/service-client";
 import { pushLedger, upsertJob, sumLedgerForUser } from "@/lib/mock-store";
 
 const ModelSchema = z.enum(["sora2", "sora2-pro"]);
+const ProviderSchema = z.enum(["fal", "wavespeed", "openai"]);
 const AspectRatioSchema = z.enum(["16:9", "9:16"]);
 
 const requestSchema = z.object({
@@ -12,11 +13,12 @@ const requestSchema = z.object({
   durationSeconds: z
     .number()
     .int()
-    .min(5)
+    .min(4)
     .max(60)
     .optional(),
   aspectRatio: AspectRatioSchema.optional(),
   model: ModelSchema.optional(),
+  provider: ProviderSchema.optional(),
 });
 
 const CREDIT_COST = Number(process.env.SORA_CREDIT_COST ?? 5);
@@ -33,6 +35,13 @@ const FAL_DURATION_SECONDS = Number(
   process.env.FAL_VIDEO_DURATION_SECONDS ?? 20,
 );
 
+const WAVESPEED_ENDPOINT =
+  process.env.WAVESPEED_SORA_ENDPOINT ??
+  "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video";
+const WAVESPEED_PRO_ENDPOINT =
+  process.env.WAVESPEED_SORA_PRO_ENDPOINT ??
+  "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video-pro";
+
 async function ensureSignedUrl(
   supabase: ReturnType<typeof getServiceClient>,
   path: string,
@@ -46,6 +55,41 @@ async function ensureSignedUrl(
   }
 
   return data.signedUrl;
+}
+
+function guessContentType(filename: string | null | undefined) {
+  if (!filename) return "image/jpeg";
+  const extension = filename.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "heic":
+      return "image/heic";
+    case "jpeg":
+    case "jpg":
+    default:
+      return "image/jpeg";
+  }
+}
+
+async function downloadAssetBuffer(signedUrl: string, assetPath: string) {
+  const response = await fetch(signedUrl);
+  if (!response.ok) {
+    throw new Error(`Could not download asset (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const fileName = assetPath.split("/").pop() ?? `asset-${Date.now()}`;
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    filename: fileName,
+    contentType: guessContentType(fileName),
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -74,10 +118,20 @@ export async function POST(request: NextRequest) {
     durationSeconds,
     model: requestedModel,
     aspectRatio: requestedAspectRatio,
+    provider: requestedProvider,
   } = body.data;
+  console.log("[sora-job] incoming", {
+    userToken: token.slice(0, 16),
+    durationSeconds,
+    model: requestedModel,
+    aspectRatio: requestedAspectRatio,
+    creditCost: CREDIT_COST,
+    provider,
+  });
   const modelKey: ModelValue = requestedModel ?? "sora2";
   const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
   const aspectRatio = requestedAspectRatio ?? "16:9";
+  const provider = requestedProvider ?? "fal";
   const automationSecret = process.env.AUTOMATION_SECRET;
   const isAutomation =
     automationSecret &&
@@ -223,6 +277,13 @@ export async function POST(request: NextRequest) {
     p_credit_cost: CREDIT_COST,
   });
 
+  console.log("[sora-job] reserved credits", {
+    userId: user.id,
+    creditCost: CREDIT_COST,
+    result: data,
+    error,
+  });
+
   if (error) {
     return NextResponse.json(
       { error: { message: "Could not reserve credits." } },
@@ -324,6 +385,12 @@ export async function POST(request: NextRequest) {
         delta: CREDIT_COST,
         reason: "refund_failed_start",
       });
+    console.log("[sora-job] refunded after failure", {
+      userId: user.id,
+      jobId,
+      creditCost: CREDIT_COST,
+      error: message,
+    });
     await supabase
       .from("jobs")
       .update({ status: "failed" })

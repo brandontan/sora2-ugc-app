@@ -1,16 +1,17 @@
 # MCP Memory — sora2-ugc-app
 
-## Latest Snapshot (2025-10-09)
-- Automation session endpoint (`/api/testing/session`) provisions Supabase login and credit top-ups when called with `x-automation-secret`.
-- Credit pack economics stay at 5 credits per Sora job, with automation helpers deducting ledger balances automatically.
-- Dashboard now listens to Supabase realtime changes, so balances refresh instantly after a top-up and the Sora button unlocks.
-- Live Playwright spec runs locally with supplied env vars; production verification still pending the seeded credentials.
+## Latest Snapshot (2025-10-11)
+- Production Supabase project (`thmsrumxinyjyljdgcgy`) is missing the tables defined in `supabase/schema.sql` (profiles, credit_ledger, jobs), so job tracking and ledger queries currently fail.
+- Dashboard still shows a full-screen "Queuing" overlay after submission, preventing additional runs while a job is pending.
+- Provider metadata (status, queue position) is not persisted; any values shown in the UI vanish on refresh.
+- Fal queue API verified manually via curl; WaveSpeed integration remains unimplemented.
 
 ## Next Steps
-1. Re-run `frontend/tests/e2e/live-genvidsfast.spec.ts` against production with seeded Supabase user to confirm the realtime balance fix.
-2. Monitor automation runs to ensure the Sora button stays unlocked after top-ups.
-3. Deploy the frontend once live automation is green end-to-end.
+1. Apply the schema from `supabase/schema.sql` (or regenerate equivalent migrations) to the live Supabase project and confirm REST access.
+2. Add persistent provider metadata columns (`provider_status`, `provider_queue_position`, `provider_last_checked`, etc.) and update the API endpoints to populate them.
+3. Redesign the dashboard submission UX to allow multiple queued jobs without blocking the form.
+4. Once foundation is stable, implement and verify WaveSpeed.ai provider support.
 
 ## References
-- Handoff log: `HANDOFF-2025-10-09.md`
+- Handoff log: `HANDOFF-2025-10-11.md`
 - Agents guide: `Agents.md`
