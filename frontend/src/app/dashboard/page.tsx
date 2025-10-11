@@ -602,26 +602,6 @@ export default function Dashboard() {
                     Charged on submit • Auto refund if job fails • {perRunLabel}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 self-start rounded-full border border-border/70 bg-secondary/40 p-1 text-xs">
-                  {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
-                    const isActive = aspectRatio === option;
-                    return (
-                      <button
-                        type="button"
-                        key={option}
-                        onClick={() => setAspectRatio(option)}
-                        aria-pressed={isActive}
-                        className={`rounded-full px-4 py-2 font-semibold transition ${
-                          isActive
-                            ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {option}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               <div className="space-y-4">
