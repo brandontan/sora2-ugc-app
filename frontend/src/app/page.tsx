@@ -118,18 +118,12 @@ export default function Home() {
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
             Create UGC Video Ads <span className="gradient-text">that actually Sells</span>
           </h1>
-          <div className="mt-10 text-sm text-muted-foreground">
-            Already have a code? Enter it below to jump straight into your workspace.
-          </div>
         </div>
 
         <div className="relative mt-16 w-full max-w-xl">
           <div className="absolute -inset-[2px] rounded-[30px] bg-gradient-to-br from-primary/50 via-indigo-500/30 to-fuchsia-500/20 blur-[70px]" />
           <div className="relative glass-surface rounded-[28px] p-8 text-left shadow-2xl">
             <h2 className="text-2xl font-semibold">Sign in instantly</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Enter your email for a one-time passcode or use the magic link from your inbox.
-            </p>
             {phase === "email" && (
               <form
                 ref={formRef}
