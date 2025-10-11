@@ -807,11 +807,7 @@ export default function Dashboard() {
                             ))}
                           </select>
                         </div>
-                      ) : (
-                        <p className="text-[0.65rem] text-muted-foreground">
-                          Frame size adjusts automatically for WaveSpeed.ai.
-                        </p>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="space-y-2">
