@@ -124,9 +124,6 @@ export default function Dashboard() {
   const [falResolution, setFalResolution] = useState<
     (typeof PROVIDER_CONFIG.fal.resolutions)[number]
   >(PROVIDER_CONFIG.fal.resolutions[0]);
-  const [wavespeedSize, setWavespeedSize] = useState<string>(
-    PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0],
-  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
@@ -188,17 +185,6 @@ export default function Dashboard() {
       }
     }
   }, [provider, falResolution]);
-
-  useEffect(() => {
-    if (provider === "wavespeed") {
-      const catalog = PROVIDER_CONFIG.wavespeed.sizesByAspect;
-      const options =
-        catalog[aspectRatio] ?? catalog[PROVIDER_CONFIG.wavespeed.aspectRatios[0]];
-      if (!options.includes(wavespeedSize)) {
-        setWavespeedSize(options[0]);
-      }
-    }
-  }, [aspectRatio, provider, wavespeedSize]);
 
   useEffect(() => {
     if (!file) {
@@ -440,10 +426,10 @@ export default function Dashboard() {
       payload.resolution = falResolution;
     }
     if (provider === "wavespeed") {
+      const sizesByAspect = PROVIDER_CONFIG.wavespeed.sizesByAspect;
       payload.size =
-        wavespeedSize ??
-        PROVIDER_CONFIG.wavespeed.sizesByAspect[aspectRatio]?.[0] ??
-        PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0];
+        sizesByAspect[aspectRatio]?.[0] ??
+        sizesByAspect[PROVIDER_CONFIG.wavespeed.aspectRatios[0]][0];
     }
 
     const response = await authFetch("/api/sora/jobs", {
@@ -929,25 +915,7 @@ export default function Dashboard() {
                             ))}
                           </select>
                         </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
-                            Frame size
-                          </p>
-                          <select
-                            value={wavespeedSize}
-                            onChange={(event) => setWavespeedSize(event.target.value)}
-                            className="w-full rounded-full border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                          >
-                            {(PROVIDER_CONFIG.wavespeed.sizesByAspect[aspectRatio] ??
-                              PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"]).map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 
@@ -990,7 +958,6 @@ export default function Dashboard() {
                           setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
                           setModel(MODEL_OPTIONS[0].value);
                           setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
-                          setWavespeedSize(PROVIDER_CONFIG.wavespeed.sizesByAspect["16:9"][0]);
                           setMessage(null);
                           setMessageTone("neutral");
                           const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
