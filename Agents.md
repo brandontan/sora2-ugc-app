@@ -1,8 +1,8 @@
 # Agents.md
 
 ## Start Here
-- Memory MCP server: mcp/MEMORY.md
-- Daily handoff: HANDOFF-2025-10-11.md
+- Memory MCP: mcp://memory/sora2-ugc-app/handoff
+- Daily handoff: HANDOFF-2025-10-12.md
 
 ## Overview
 - Project: sora2-ugc-app — build a Supabase-backed Sora2 UGC flow with credit packs, video generation, and download delivery.
@@ -10,9 +10,12 @@
 - Automated tests use Playwright (see `frontend/tests`).
 
 ## Current Priorities
-1. Verify the new realtime balance refresh in production so automation keeps the Sora button unlocked.
-2. Re-run the live Playwright flow with seeded Supabase creds to ensure credits, job queueing, and downloads stay green.
-3. Prep the Next.js deploy once the live automation passes and dashboards show accurate balances.
+1. **MANUAL STEP REQUIRED**: Apply provider metadata migration via Supabase dashboard SQL editor
+   - File: supabase/migrations/add_provider_metadata_to_jobs.sql
+   - URL: https://supabase.com/dashboard/project/thmsrumxinyjyljdgcgy/sql/new
+2. After migration: Update /api/sora routes to persist provider_status and queue_position
+3. Test rapid multi-job submission flow (dashboard no longer blocks with overlay)
+4. Verify dashboard shows real-time queue position updates
 
 ## Useful Paths
 - Mock/test helpers: `frontend/src/lib/`
