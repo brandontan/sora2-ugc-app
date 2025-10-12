@@ -10,12 +10,9 @@
 - Automated tests use Playwright (see `frontend/tests`).
 
 ## Current Priorities
-1. **MANUAL STEP REQUIRED**: Apply provider metadata migration via Supabase dashboard SQL editor
-   - File: supabase/migrations/add_provider_metadata_to_jobs.sql
-   - URL: https://supabase.com/dashboard/project/thmsrumxinyjyljdgcgy/sql/new
-2. After migration: Update /api/sora routes to persist provider_status and queue_position
-3. Test rapid multi-job submission flow (dashboard no longer blocks with overlay)
-4. Verify dashboard shows real-time queue position updates
+1. Schedule `/api/sora/poller?limit=5` cron with `ADMIN_DASHBOARD_TOKEN` (WaveSpeed + Fal)
+2. Finish `/admin/jobs` telemetry view (jobs table + provider timeline) plus evidence
+3. Resolve provider gaps: Fal jobs stuck `IN_QUEUE`; Replicate Sora blocked until OpenAI org verified
 
 ## Useful Paths
 - Mock/test helpers: `frontend/src/lib/`
