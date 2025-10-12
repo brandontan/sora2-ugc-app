@@ -17,7 +17,8 @@ type JobRow = {
   provider_job_id: string | null;
   credit_cost: number;
   provider_status?: string | null;
-  provider_queue_position?: number | null;
+  queue_position?: number | null;
+  provider_error?: string | null;
   provider_last_checked?: string | null;
   provider_logs?: string[] | null;
 };
@@ -34,6 +35,8 @@ type FalStatusResponse = {
   phase?: string;
   done?: boolean;
   queue_position?: number;
+  error?: unknown;
+  message?: unknown;
   logs?: unknown;
 };
 
@@ -44,6 +47,9 @@ type FalResultResponse = {
   data?: unknown;
   download_url?: string;
   video_url?: string;
+  queue_position?: number;
+  error?: unknown;
+  message?: unknown;
   logs?: unknown;
 };
 
@@ -105,9 +111,15 @@ async function refreshFromSora(job: JobRow) {
         : typeof statusJson?.phase === "string"
           ? statusJson.phase
           : null;
+  const statusError =
+    typeof statusJson?.message === "string"
+      ? statusJson.message
+      : typeof statusJson?.error === "string"
+        ? statusJson.error
+        : null;
   const baseUpdate: Partial<JobRow> = {
-    provider_status: providerStatus,
-    provider_queue_position: queuePosition,
+    provider_status: providerStatus ?? job.provider_status ?? null,
+    queue_position: queuePosition ?? null,
     provider_last_checked: new Date().toISOString(),
   };
 
@@ -126,6 +138,7 @@ async function refreshFromSora(job: JobRow) {
       ...job,
       status: derivedStatus,
       ...baseUpdate,
+      provider_error: null,
     };
   }
 
@@ -139,6 +152,7 @@ async function refreshFromSora(job: JobRow) {
       ...job,
       status: nextStatus,
       ...baseUpdate,
+      provider_error: statusError ?? job.provider_error ?? null,
     };
   }
 
@@ -156,6 +170,7 @@ async function refreshFromSora(job: JobRow) {
     return {
       ...job,
       ...baseUpdate,
+      provider_error: job.provider_error ?? null,
     };
   }
 
@@ -184,6 +199,30 @@ async function refreshFromSora(job: JobRow) {
       .filter((msg): msg is string => Boolean(msg));
     return messages.length > 0 ? messages : null;
   };
+  const logs = extractLogs(payload.logs);
+  const providerErrorFromPayload = (() => {
+    const candidates: unknown[] = [
+      payload.message,
+      payload.error,
+    ];
+    if (payload.response && typeof payload.response === "object") {
+      const response = payload.response as Record<string, unknown>;
+      candidates.push(response.error, response.message, response.detail);
+    }
+    if (payload.output && typeof payload.output === "object") {
+      const output = payload.output as Record<string, unknown>;
+      candidates.push(output.error, output.message, output.detail);
+    }
+    if (Array.isArray(logs) && logs.length > 0) {
+      candidates.push(...logs);
+    }
+    for (const value of candidates) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return null;
+  })();
 
   if (payload.status === "completed") {
     console.log("[sora-job:get] completed", {
@@ -253,9 +292,10 @@ async function refreshFromSora(job: JobRow) {
       status: "completed",
       video_url: asset ?? job.video_url,
       provider_status: payload.status ?? providerStatus,
-      provider_queue_position: queuePosition,
+      queue_position: queuePosition,
       provider_last_checked: new Date().toISOString(),
-      provider_logs: extractLogs(payload.logs),
+      provider_logs: logs,
+      provider_error: null,
     };
   }
 
@@ -264,15 +304,17 @@ async function refreshFromSora(job: JobRow) {
       ...job,
       status: "failed",
       provider_status: payload.status ?? providerStatus,
-      provider_queue_position: queuePosition,
+      queue_position: queuePosition,
       provider_last_checked: new Date().toISOString(),
-      provider_logs: extractLogs(payload.logs),
+      provider_logs: logs,
+      provider_error: providerErrorFromPayload ?? job.provider_error ?? null,
     };
   }
 
   return {
     ...job,
     ...baseUpdate,
+    provider_error: providerErrorFromPayload ?? job.provider_error ?? null,
   };
 }
 
@@ -330,12 +372,20 @@ export async function GET(
     job = await refreshFromSora(job);
     console.log("[sora-job:get] after refresh", job);
 
+    const metadataUpdate = {
+      provider_status: job.provider_status ?? null,
+      queue_position:
+        typeof job.queue_position === "number" ? job.queue_position : null,
+      provider_error: job.provider_error ?? null,
+    };
+
     if (job.status === "completed" && job.video_url) {
       await supabase
         .from("jobs")
         .update({
           status: "completed",
           video_url: job.video_url,
+          ...metadataUpdate,
         })
         .eq("id", id);
 
@@ -370,7 +420,18 @@ export async function GET(
 
       await supabase
         .from("jobs")
-        .update({ status: job.status })
+        .update({
+          status: job.status,
+          ...metadataUpdate,
+        })
+        .eq("id", id);
+    } else {
+      await supabase
+        .from("jobs")
+        .update({
+          status: job.status,
+          ...metadataUpdate,
+        })
         .eq("id", id);
     }
 
@@ -385,7 +446,8 @@ export async function GET(
       job = {
         ...persisted,
         provider_status: job.provider_status,
-        provider_queue_position: job.provider_queue_position,
+        queue_position: job.queue_position,
+        provider_error: job.provider_error,
         provider_last_checked: job.provider_last_checked,
         provider_logs: job.provider_logs,
       };

@@ -18,7 +18,8 @@ type Job = {
   created_at: string;
   credit_cost: number;
   provider_status?: string | null;
-  provider_queue_position?: number | null;
+  queue_position?: number | null;
+  provider_error?: string | null;
   provider_last_checked?: string | null;
   provider_logs?: string[] | null;
 };
@@ -31,7 +32,8 @@ const jobSchema = z.object({
   created_at: z.string(),
   credit_cost: z.number(),
   provider_status: z.string().nullable().optional(),
-  provider_queue_position: z.number().nullable().optional(),
+  queue_position: z.number().nullable().optional(),
+  provider_error: z.string().nullable().optional(),
   provider_last_checked: z.string().nullable().optional(),
   provider_logs: z.array(z.string()).nullable().optional(),
 });
@@ -43,6 +45,10 @@ const jobsResponseSchema = z
 const soraResponseSchema = z.object({
   jobId: z.string(),
   status: z.string(),
+  queuePosition: z.number().nullable().optional(),
+  providerStatus: z.string().optional(),
+  note: z.string().optional(),
+  requestId: z.string().nullable().optional(),
 });
 
 const ENV_FAL_DURATION_OPTIONS = (process.env
@@ -135,8 +141,12 @@ const describeProviderState = (job: Job | null): string | null => {
   const status = job.provider_status.toUpperCase();
   const checked = formatRelativeTime(job.provider_last_checked);
   const queuePosition =
-    typeof job.provider_queue_position === "number"
-      ? job.provider_queue_position
+    typeof job.queue_position === "number"
+      ? job.queue_position
+      : null;
+  const providerError =
+    typeof job.provider_error === "string" && job.provider_error.trim().length > 0
+      ? job.provider_error.trim()
       : null;
 
   switch (status) {
@@ -150,7 +160,9 @@ const describeProviderState = (job: Job | null): string | null => {
     case "COMPLETED":
       return `Provider finished (checked ${checked})`;
     case "FAILED":
-      return `Provider reported a failure (checked ${checked})`;
+      return providerError
+        ? `Provider failed: ${providerError} (checked ${checked})`
+        : `Provider reported a failure (checked ${checked})`;
     case "CANCELLATION_REQUESTED":
       return `Cancellation requested at provider (checked ${checked})`;
     default:
@@ -375,9 +387,7 @@ export default function Dashboard() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any)
       .from("jobs")
-      .select(
-        "id,prompt,status,video_url,created_at,credit_cost,provider_job_id,user_id",
-      )
+      .select("*")
       .eq("user_id", session?.user.id)
       .order("created_at", { ascending: false });
 
@@ -406,9 +416,17 @@ export default function Dashboard() {
         typeof job.provider_status === "string"
           ? job.provider_status
           : null,
-      provider_queue_position:
-        typeof job.provider_queue_position === "number"
-          ? job.provider_queue_position
+      queue_position:
+        typeof job.queue_position === "number"
+          ? job.queue_position
+          : typeof job.queue_position === "string"
+            ? Number.isNaN(Number.parseInt(job.queue_position, 10))
+              ? null
+              : Number.parseInt(job.queue_position, 10)
+            : null,
+      provider_error:
+        typeof job.provider_error === "string" && job.provider_error.length > 0
+          ? job.provider_error
           : null,
       provider_last_checked:
         typeof job.provider_last_checked === "string"
@@ -631,8 +649,16 @@ export default function Dashboard() {
     const parsed = soraResponseSchema.parse(await response.json());
 
     setMessageTone("neutral");
+    const queueInfo =
+      typeof parsed.queuePosition === "number"
+        ? ` Queue spot ${parsed.queuePosition}.`
+        : parsed.note
+          ? ` ${parsed.note}`
+          : parsed.providerStatus
+            ? ` Provider ${parsed.providerStatus}.`
+            : "";
     setMessage(
-      `Job ${parsed.jobId.slice(0, 6)} queued. We'll email you when the video is ready.`,
+      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} We'll email when ready.`,
     );
     setPrompt("");
     setFile(null);
@@ -1253,7 +1279,12 @@ export default function Dashboard() {
                       ) : job.status === "cancelled_user" ? (
                         <span className="text-xs text-muted-foreground">Cancelled early. Credits remain used.</span>
                       ) : job.status === "failed" ? (
-                        <span className="text-xs text-muted-foreground">Generation failed. Credits already refunded.</span>
+                        <span className="text-xs text-muted-foreground">
+                          Generation failed. Credits already refunded.
+                          {job.provider_error
+                            ? ` Provider note: ${job.provider_error}`
+                            : ""}
+                        </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
                           {job.status === "processing" ? "Sora2 is rendering…" : "Awaiting next update"}

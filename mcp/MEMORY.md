@@ -8,7 +8,7 @@
 
 ## Next Steps
 1. Apply the schema from `supabase/schema.sql` (or regenerate equivalent migrations) to the live Supabase project and confirm REST access.
-2. Add persistent provider metadata columns (`provider_status`, `provider_queue_position`, `provider_last_checked`, etc.) and update the API endpoints to populate them.
+2. Add persistent provider metadata columns (`provider_status`, `queue_position`, `provider_error`, `provider_last_checked`, etc.) and update the API endpoints to populate them.
 3. Redesign the dashboard submission UX to allow multiple queued jobs without blocking the form.
 4. Once foundation is stable, implement and verify WaveSpeed.ai provider support.
 

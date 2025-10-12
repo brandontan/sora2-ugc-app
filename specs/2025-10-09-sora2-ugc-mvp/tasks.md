@@ -30,3 +30,8 @@
    - Add rate limiting (Supabase function guard) and basic audit logging.
    - Run unit/integration tests, `aud full`, and document runbook for key rotation.
    - Deliverable: Test logs + auditor report attached to HANDOFF.
+
+7. **Provider queue telemetry + persistence**
+   - Apply `supabase/migrations/add_provider_metadata_to_jobs.sql` to production via dashboard and confirm columns exist (`provider_status`, `queue_position`, `provider_error`, `updated_at`).
+   - Update `/api/sora` routes and dashboard data models to persist and surface provider metadata (status, queue position, errors) for every poll cycle.
+   - Acceptance: Manual run logs show provider metadata stored in Supabase, dashboard renders queue position without overlay blocking new submissions, and tests/lint remain green.

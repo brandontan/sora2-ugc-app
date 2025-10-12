@@ -231,6 +231,9 @@ export async function POST(request: NextRequest) {
       video_url: videoUrl,
       provider_job_id: null,
       credit_cost: CREDIT_COST,
+      provider_status: "completed",
+      queue_position: null,
+      provider_error: null,
     });
 
     return NextResponse.json({
@@ -309,11 +312,21 @@ export async function POST(request: NextRequest) {
   const falKey = process.env.FAL_KEY;
 
   if (!falKey) {
-    await supabase.from("jobs").update({ status: "queued" }).eq("id", jobId);
+    await supabase
+      .from("jobs")
+      .update({
+        status: "queued",
+        provider_status: "queued",
+        queue_position: null,
+        provider_error: null,
+      })
+      .eq("id", jobId);
     return NextResponse.json({
       jobId,
       status: "queued",
       note: "FAL_KEY missing; job queued until key is provided.",
+      providerStatus: "queued",
+      queuePosition: null,
     });
   }
 
@@ -360,20 +373,42 @@ export async function POST(request: NextRequest) {
 
     const requestId =
       json?.request_id ?? json?.requestId ?? json?.id ?? null;
+    const providerStatus =
+      typeof json?.status === "string"
+        ? json.status
+        : typeof json?.state === "string"
+          ? json.state
+          : typeof json?.phase === "string"
+            ? json.phase
+            : null;
+    const queuePositionRaw =
+      typeof json?.queue_position === "number"
+        ? json.queue_position
+        : typeof json?.queue === "object" && json?.queue !== null
+          ? (json.queue as { position?: unknown }).position
+          : null;
+    const queuePosition =
+      typeof queuePositionRaw === "number" ? queuePositionRaw : null;
+    const nextStatus = requestId ? "processing" : "queued";
 
     await supabase
       .from("jobs")
       .update({
-        status: "processing",
+        status: nextStatus,
         provider_job_id: requestId,
+        provider_status: providerStatus ?? nextStatus,
+        queue_position: queuePosition,
+        provider_error: null,
       })
       .eq("id", jobId);
 
     return NextResponse.json({
       jobId,
-      status: requestId ? "processing" : "queued",
+      status: nextStatus,
       durationSeconds: selectedDuration,
       requestId,
+      providerStatus: providerStatus ?? nextStatus,
+      queuePosition,
     });
   } catch (error_) {
     const message =
@@ -393,7 +428,12 @@ export async function POST(request: NextRequest) {
     });
     await supabase
       .from("jobs")
-      .update({ status: "failed" })
+      .update({
+        status: "failed",
+        provider_status: "failed",
+        queue_position: null,
+        provider_error: message,
+      })
       .eq("id", jobId);
     return NextResponse.json(
       { error: { message } },
