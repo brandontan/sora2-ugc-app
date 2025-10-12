@@ -15,6 +15,12 @@ type JobEntry = {
   credit_cost: number;
   provider_job_id: string | null;
   created_at: string;
+  provider?: string | null;
+  provider_status?: string | null;
+  queue_position?: number | null;
+  provider_error?: string | null;
+  provider_last_checked?: string | null;
+  provider_logs?: string[] | null;
 };
 
 type MockStore = {

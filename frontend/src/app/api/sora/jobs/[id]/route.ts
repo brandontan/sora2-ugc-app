@@ -7,6 +7,8 @@ const paramsSchema = z.object({
   id: z.string().uuid("Invalid job id."),
 });
 
+const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
+
 export const runtime = "nodejs";
 
 type JobRow = {
@@ -16,6 +18,7 @@ type JobRow = {
   video_url: string | null;
   provider_job_id: string | null;
   credit_cost: number;
+  provider?: string | null;
   provider_status?: string | null;
   queue_position?: number | null;
   provider_error?: string | null;
@@ -53,7 +56,18 @@ type FalResultResponse = {
   logs?: unknown;
 };
 
-async function refreshFromSora(job: JobRow) {
+async function refreshJobFromProvider(job: JobRow): Promise<JobRow> {
+  const provider = (job.provider ?? "fal").toLowerCase();
+  if (provider === "fal") {
+    return refreshFalJob(job);
+  }
+  if (provider === "wavespeed") {
+    return refreshWaveSpeedJob(job);
+  }
+  return job;
+}
+
+async function refreshFalJob(job: JobRow) {
   const falKey = process.env.FAL_KEY;
   if (!falKey || !job?.provider_job_id) {
     console.log("[sora-job:get] skip refresh", {
@@ -320,6 +334,188 @@ async function refreshFromSora(job: JobRow) {
 
 type RouteParams = Promise<{ id: string }>;
 
+type WaveSpeedResult = {
+  code?: number;
+  message?: string;
+  data?: Record<string, unknown>;
+};
+
+async function refreshWaveSpeedJob(job: JobRow): Promise<JobRow> {
+  if (!job.provider_job_id) {
+    return job;
+  }
+
+  if (!WAVESPEED_API_KEY) {
+    console.warn("[sora-job:get] wavespeed key missing; cannot refresh job", {
+      jobId: job.id,
+    });
+    return {
+      ...job,
+      provider_last_checked: new Date().toISOString(),
+      provider_error:
+        job.provider_error ??
+        "WaveSpeed API key missing on backend. Unable to refresh status.",
+    };
+  }
+
+  const statusUrl = `https://api.wavespeed.ai/api/v3/predictions/${job.provider_job_id}/result`;
+  const response = await fetch(statusUrl, {
+    headers: {
+      Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.warn("[sora-job:get] wavespeed status fetch failed", {
+      jobId: job.id,
+      status: response.status,
+    });
+    return {
+      ...job,
+      provider_last_checked: new Date().toISOString(),
+      provider_error: job.provider_error ?? null,
+    };
+  }
+
+  const json = (await response.json().catch(() => ({}))) as WaveSpeedResult;
+  const data = (json?.data ?? {}) as Record<string, unknown>;
+  const providerStatus = extractProviderStatus(data?.status);
+  const normalizedStatus = normalizeProviderStatus(providerStatus);
+  const queuePosition = parseQueuePosition(
+    data?.queue_position ??
+      (data?.queue as Record<string, unknown> | undefined)?.position,
+  );
+
+  const outputs =
+    data?.outputs ??
+    data?.output ??
+    (Array.isArray(data) ? data : undefined);
+  const downloadUrl =
+    typeof data?.download_url === "string" ? data.download_url : null;
+  const videoUrl =
+    normalizedStatus === "completed"
+      ? extractWaveSpeedVideoUrl(outputs) ?? downloadUrl ?? job.video_url
+      : job.video_url;
+
+  const providerError =
+    normalizedStatus === "failed" && typeof data?.error === "string"
+      ? data.error
+      : normalizedStatus === "failed"
+        ? job.provider_error ?? "WaveSpeed reported failure."
+        : null;
+  const logs = coerceLogMessages(data?.logs);
+
+  return {
+    ...job,
+    status: normalizedStatus,
+    provider_status: providerStatus ?? job.provider_status ?? null,
+    queue_position: queuePosition ?? job.queue_position ?? null,
+    provider_error:
+      normalizedStatus === "failed" ? providerError : null,
+    provider_last_checked: new Date().toISOString(),
+    provider_logs: logs ?? job.provider_logs ?? null,
+    video_url: videoUrl ?? null,
+  };
+}
+
+function extractWaveSpeedVideoUrl(outputs: unknown): string | null {
+  if (!Array.isArray(outputs)) return null;
+  for (const entry of outputs) {
+    if (typeof entry === "string" && entry.startsWith("http")) {
+      return entry;
+    }
+    if (entry && typeof entry === "object") {
+      const record = entry as Record<string, unknown>;
+      const candidates = [
+        record.url,
+        record.download_url,
+        record.video_url,
+        record.href,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.startsWith("http")) {
+          return candidate;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function extractProviderStatus(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : null;
+}
+
+function normalizeProviderStatus(
+  providerStatus: string | null,
+): "queued" | "processing" | "completed" | "failed" {
+  const normalized = providerStatus?.toLowerCase() ?? "";
+  if (
+    normalized === "queued" ||
+    normalized === "queue" ||
+    normalized === "created" ||
+    normalized === "pending"
+  ) {
+    return "queued";
+  }
+  if (
+    normalized === "processing" ||
+    normalized === "running" ||
+    normalized === "in_progress" ||
+    normalized === "in-progress"
+  ) {
+    return "processing";
+  }
+  if (
+    normalized === "completed" ||
+    normalized === "succeeded" ||
+    normalized === "finished" ||
+    normalized === "success"
+  ) {
+    return "completed";
+  }
+  if (
+    normalized === "failed" ||
+    normalized === "error" ||
+    normalized === "cancelled" ||
+    normalized === "canceled"
+  ) {
+    return "failed";
+  }
+  return "processing";
+}
+
+function parseQueuePosition(candidate: unknown): number | null {
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return candidate;
+  }
+  if (typeof candidate === "string") {
+    const intValue = Number.parseInt(candidate, 10);
+    return Number.isFinite(intValue) ? intValue : null;
+  }
+  return null;
+}
+
+function coerceLogMessages(logs: unknown): string[] | null {
+  if (!Array.isArray(logs)) return null;
+  const messages = logs
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        try {
+          return JSON.stringify(entry);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    })
+    .filter((entry): entry is string => Boolean(entry));
+  return messages.length > 0 ? messages : null;
+}
+
 export async function GET(
   _request: NextRequest,
   context: { params: RouteParams },
@@ -369,7 +565,7 @@ export async function GET(
   console.log("[sora-job:get] current job", job);
 
   if (["processing", "queued", "queueing"].includes(job.status)) {
-    job = await refreshFromSora(job);
+    job = await refreshJobFromProvider(job);
     console.log("[sora-job:get] after refresh", job);
 
     const metadataUpdate = {
@@ -458,6 +654,7 @@ export async function GET(
 }
 
 async function cancelSoraJob(job: JobRow) {
+  if ((job.provider ?? "fal").toLowerCase() !== "fal") return;
   const falKey = process.env.FAL_KEY;
   if (!falKey || !job?.provider_job_id) return;
 

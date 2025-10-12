@@ -17,6 +17,7 @@ type Job = {
   video_url: string | null;
   created_at: string;
   credit_cost: number;
+  provider?: string | null;
   provider_status?: string | null;
   queue_position?: number | null;
   provider_error?: string | null;
@@ -31,6 +32,7 @@ const jobSchema = z.object({
   video_url: z.string().nullable(),
   created_at: z.string(),
   credit_cost: z.number(),
+  provider: z.string().nullable().optional(),
   provider_status: z.string().nullable().optional(),
   queue_position: z.number().nullable().optional(),
   provider_error: z.string().nullable().optional(),
@@ -98,6 +100,17 @@ const PROVIDER_OPTIONS = [
   },
 ] as const;
 
+function getProviderLabel(provider: string | null | undefined) {
+  const key = (provider ?? "fal").toLowerCase();
+  switch (key) {
+    case "wavespeed":
+      return PROVIDER_CONFIG.wavespeed.label;
+    case "fal":
+    default:
+      return PROVIDER_CONFIG.fal.label;
+  }
+}
+
 const MODEL_OPTIONS = [
   {
     value: "sora2",
@@ -148,25 +161,27 @@ const describeProviderState = (job: Job | null): string | null => {
     typeof job.provider_error === "string" && job.provider_error.trim().length > 0
       ? job.provider_error.trim()
       : null;
+  const providerLabel = getProviderLabel(job.provider);
+  const prefix = providerLabel ? `${providerLabel}: ` : "";
 
   switch (status) {
     case "IN_QUEUE":
       if (queuePosition !== null) {
-        return `In queue · position ${queuePosition} (checked ${checked})`;
+        return `${prefix}In queue · position ${queuePosition} (checked ${checked})`;
       }
-      return `In queue (checked ${checked})`;
+      return `${prefix}In queue (checked ${checked})`;
     case "IN_PROGRESS":
-      return `Rendering with provider (checked ${checked})`;
+      return `${prefix}Rendering with provider (checked ${checked})`;
     case "COMPLETED":
-      return `Provider finished (checked ${checked})`;
+      return `${prefix}Provider finished (checked ${checked})`;
     case "FAILED":
       return providerError
-        ? `Provider failed: ${providerError} (checked ${checked})`
-        : `Provider reported a failure (checked ${checked})`;
+        ? `${prefix}Provider failed: ${providerError} (checked ${checked})`
+        : `${prefix}Provider reported a failure (checked ${checked})`;
     case "CANCELLATION_REQUESTED":
-      return `Cancellation requested at provider (checked ${checked})`;
+      return `${prefix}Cancellation requested at provider (checked ${checked})`;
     default:
-      return `Provider status: ${job.provider_status} (checked ${checked})`;
+      return `${prefix}Provider status: ${job.provider_status} (checked ${checked})`;
   }
 };
 
@@ -412,6 +427,10 @@ export default function Dashboard() {
         typeof job.credit_cost === "number"
           ? job.credit_cost
           : Number(job.credit_cost ?? creditCostPerRun),
+      provider:
+        typeof job.provider === "string"
+          ? job.provider
+          : null,
       provider_status:
         typeof job.provider_status === "string"
           ? job.provider_status
@@ -657,8 +676,9 @@ export default function Dashboard() {
           : parsed.providerStatus
             ? ` Provider ${parsed.providerStatus}.`
             : "";
+    const providerSummary = getProviderLabel(provider);
     setMessage(
-      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} We'll email when ready.`,
+      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} Provider: ${providerSummary}. We'll email when ready.`,
     );
     setPrompt("");
     setFile(null);
@@ -1222,6 +1242,9 @@ export default function Dashboard() {
                       </p>
                       <p className="text-xs text-muted-foreground">{createdAt}</p>
                       <p className="text-xs text-muted-foreground">Credit cost: {job.credit_cost}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Provider: {getProviderLabel(job.provider)}
+                      </p>
                     </div>
                     <div className="flex flex-col gap-3 md:items-end">
                       <span

@@ -54,6 +54,7 @@ create table if not exists public.jobs (
   prompt text not null,
   asset_path text not null,
   status text not null default 'queued',
+  provider text not null default 'fal',
   provider_job_id text,
   video_url text,
   credit_cost integer not null default 5,

@@ -5,6 +5,7 @@ import { pushLedger, upsertJob, sumLedgerForUser } from "@/lib/mock-store";
 
 const ModelSchema = z.enum(["sora2", "sora2-pro"]);
 const ProviderSchema = z.enum(["fal", "wavespeed", "openai"]);
+type ProviderValue = z.infer<typeof ProviderSchema>;
 const AspectRatioSchema = z.enum(["16:9", "9:16"]);
 
 const requestSchema = z.object({
@@ -41,6 +42,7 @@ const WAVESPEED_ENDPOINT =
 const WAVESPEED_PRO_ENDPOINT =
   process.env.WAVESPEED_SORA_PRO_ENDPOINT ??
   "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video-pro";
+const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 
 async function ensureSignedUrl(
   supabase: ReturnType<typeof getServiceClient>,
@@ -55,41 +57,6 @@ async function ensureSignedUrl(
   }
 
   return data.signedUrl;
-}
-
-function guessContentType(filename: string | null | undefined) {
-  if (!filename) return "image/jpeg";
-  const extension = filename.split(".").pop()?.toLowerCase();
-  switch (extension) {
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    case "bmp":
-      return "image/bmp";
-    case "heic":
-      return "image/heic";
-    case "jpeg":
-    case "jpg":
-    default:
-      return "image/jpeg";
-  }
-}
-
-async function downloadAssetBuffer(signedUrl: string, assetPath: string) {
-  const response = await fetch(signedUrl);
-  if (!response.ok) {
-    throw new Error(`Could not download asset (${response.status})`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  const fileName = assetPath.split("/").pop() ?? `asset-${Date.now()}`;
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    filename: fileName,
-    contentType: guessContentType(fileName),
-  };
 }
 
 export async function POST(request: NextRequest) {
@@ -120,6 +87,16 @@ export async function POST(request: NextRequest) {
     aspectRatio: requestedAspectRatio,
     provider: requestedProvider,
   } = body.data;
+  const provider: ProviderValue = requestedProvider ?? "fal";
+  if (provider === "openai") {
+    return NextResponse.json(
+      { error: { message: "OpenAI provider is not yet supported." } },
+      { status: 400 },
+    );
+  }
+  const modelKey: ModelValue = requestedModel ?? "sora2";
+  const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
+  const aspectRatio = requestedAspectRatio ?? "16:9";
   console.log("[sora-job] incoming", {
     userToken: token.slice(0, 16),
     durationSeconds,
@@ -128,10 +105,6 @@ export async function POST(request: NextRequest) {
     creditCost: CREDIT_COST,
     provider,
   });
-  const modelKey: ModelValue = requestedModel ?? "sora2";
-  const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
-  const aspectRatio = requestedAspectRatio ?? "16:9";
-  const provider = requestedProvider ?? "fal";
   const automationSecret = process.env.AUTOMATION_SECRET;
   const isAutomation =
     automationSecret &&
@@ -181,6 +154,7 @@ export async function POST(request: NextRequest) {
       credit_cost: CREDIT_COST,
       provider_job_id: providerId,
       created_at: createdAt,
+      provider,
     });
 
     return NextResponse.json({
@@ -231,6 +205,7 @@ export async function POST(request: NextRequest) {
       video_url: videoUrl,
       provider_job_id: null,
       credit_cost: CREDIT_COST,
+      provider,
       provider_status: "completed",
       queue_position: null,
       provider_error: null,
@@ -298,45 +273,109 @@ export async function POST(request: NextRequest) {
 
   if (!jobId) {
     return NextResponse.json(
-      { error: { message: "Job id missing." } },
-      { status: 500 },
-    );
+    { error: { message: "Job id missing." } },
+    { status: 500 },
+  );
+}
+
+await supabase.from("assets").insert({
+  user_id: user.id,
+  storage_path: assetPath,
+  kind: "product",
+});
+
+  await supabase.from("jobs").update({ provider }).eq("id", jobId);
+
+  const selectedDuration =
+    typeof durationSeconds === "number"
+      ? durationSeconds
+      : FAL_DURATION_SECONDS;
+
+  if (provider === "fal") {
+    return await launchFalJob({
+      supabase,
+      jobId,
+      userId: user.id,
+      prompt,
+      assetPath,
+      aspectRatio,
+      selectedDuration,
+      modelKey,
+      selectedModelId,
+      provider,
+    });
   }
 
-  await supabase.from("assets").insert({
-    user_id: user.id,
-    storage_path: assetPath,
-    kind: "product",
+  if (provider === "wavespeed") {
+    return await launchWaveSpeedJob({
+      supabase,
+      jobId,
+      userId: user.id,
+      prompt,
+      assetPath,
+      selectedDuration,
+      provider,
+      modelKey,
+    });
+  }
+
+  await failJobAndRefund({
+    supabase,
+    jobId,
+    userId: user.id,
+    provider,
+    message: `Unsupported provider "${provider}".`,
+    reason: "refund_failed_start",
   });
 
-  const falKey = process.env.FAL_KEY;
+  return NextResponse.json(
+    { error: { message: "Unsupported provider." } },
+    { status: 400 },
+  );
+}
 
+type LaunchFalParams = {
+  supabase: ReturnType<typeof getServiceClient>;
+  jobId: string;
+  userId: string;
+  prompt: string;
+  assetPath: string;
+  aspectRatio: string;
+  selectedDuration: number;
+  modelKey: ModelValue;
+  selectedModelId: string;
+  provider: ProviderValue;
+};
+
+async function launchFalJob({
+  supabase,
+  jobId,
+  userId,
+  prompt,
+  assetPath,
+  aspectRatio,
+  selectedDuration,
+  modelKey,
+  selectedModelId,
+  provider,
+}: LaunchFalParams) {
+  const falKey = process.env.FAL_KEY;
   if (!falKey) {
-    await supabase
-      .from("jobs")
-      .update({
-        status: "queued",
-        provider_status: "queued",
-        queue_position: null,
-        provider_error: null,
-      })
-      .eq("id", jobId);
-    return NextResponse.json({
+    const message =
+      "FAL_KEY environment variable is missing. Video generation is currently unavailable.";
+    await failJobAndRefund({
+      supabase,
       jobId,
-      status: "queued",
-      note: "FAL_KEY missing; job queued until key is provided.",
-      providerStatus: "queued",
-      queuePosition: null,
+      userId,
+      provider,
+      message,
+      reason: "refund_missing_provider_key",
     });
+    return NextResponse.json({ error: { message } }, { status: 500 });
   }
 
   try {
     const signedUrl = await ensureSignedUrl(supabase, assetPath);
-
-    const selectedDuration =
-      typeof durationSeconds === "number"
-        ? durationSeconds
-        : FAL_DURATION_SECONDS;
 
     const payload = {
       prompt,
@@ -361,42 +400,59 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(payload),
     });
 
-    const json = await falResponse.json().catch(() => ({}));
+    const json = (await falResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
     if (!falResponse.ok) {
       const detail =
         typeof json?.detail === "string"
           ? json.detail
           : "FAL image-to-video request failed.";
-      throw new Error(detail);
+      await failJobAndRefund({
+        supabase,
+        jobId,
+        userId,
+        provider,
+        message: detail,
+      });
+      return NextResponse.json({ error: { message: detail } }, { status: 502 });
     }
 
-    const requestId =
-      json?.request_id ?? json?.requestId ?? json?.id ?? null;
-    const providerStatus =
-      typeof json?.status === "string"
-        ? json.status
-        : typeof json?.state === "string"
-          ? json.state
-          : typeof json?.phase === "string"
-            ? json.phase
-            : null;
-    const queuePositionRaw =
-      typeof json?.queue_position === "number"
-        ? json.queue_position
-        : typeof json?.queue === "object" && json?.queue !== null
-          ? (json.queue as { position?: unknown }).position
-          : null;
-    const queuePosition =
-      typeof queuePositionRaw === "number" ? queuePositionRaw : null;
-    const nextStatus = requestId ? "processing" : "queued";
+    const requestIdCandidate =
+      (typeof json?.request_id === "string" && json.request_id) ||
+      (typeof json?.requestId === "string" && json.requestId) ||
+      (typeof json?.id === "string" && json.id) ||
+      null;
+
+    if (!requestIdCandidate) {
+      const message = "FAL returned an empty request id.";
+      await failJobAndRefund({
+        supabase,
+        jobId,
+        userId,
+        provider,
+        message,
+      });
+      return NextResponse.json({ error: { message } }, { status: 502 });
+    }
+
+    const providerStatus = extractProviderStatus(json?.status) ??
+      extractProviderStatus(json?.state) ??
+      extractProviderStatus(json?.phase);
+    const normalizedStatus = normalizeProviderStatus(providerStatus);
+    const queuePosition = parseQueuePosition(
+      json?.queue_position ?? (json?.queue as Record<string, unknown> | undefined)?.position,
+    );
 
     await supabase
       .from("jobs")
       .update({
-        status: nextStatus,
-        provider_job_id: requestId,
-        provider_status: providerStatus ?? nextStatus,
+        provider,
+        status: normalizedStatus,
+        provider_job_id: requestIdCandidate,
+        provider_status: providerStatus ?? normalizedStatus,
         queue_position: queuePosition,
         provider_error: null,
       })
@@ -404,40 +460,267 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       jobId,
-      status: nextStatus,
+      status: normalizedStatus,
       durationSeconds: selectedDuration,
-      requestId,
-      providerStatus: providerStatus ?? nextStatus,
+      requestId: requestIdCandidate,
+      providerStatus: providerStatus ?? normalizedStatus,
       queuePosition,
     });
-  } catch (error_) {
+  } catch (error) {
     const message =
-      error_ instanceof Error ? error_.message : "Video generation failed.";
-    await supabase
-      .from("credit_ledger")
-      .insert({
-        user_id: user.id,
-        delta: CREDIT_COST,
-        reason: "refund_failed_start",
-      });
-    console.log("[sora-job] refunded after failure", {
-      userId: user.id,
+      error instanceof Error ? error.message : "Video generation failed.";
+    console.error("[sora-job] fal launch error", { jobId, error: message });
+    await failJobAndRefund({
+      supabase,
       jobId,
-      creditCost: CREDIT_COST,
-      error: message,
+      userId,
+      provider,
+      message,
     });
+    return NextResponse.json(
+      { error: { message } },
+      { status: 502 },
+    );
+  }
+}
+
+type LaunchWaveSpeedParams = {
+  supabase: ReturnType<typeof getServiceClient>;
+  jobId: string;
+  userId: string;
+  prompt: string;
+  assetPath: string;
+  selectedDuration: number;
+  provider: ProviderValue;
+  modelKey: ModelValue;
+};
+
+async function launchWaveSpeedJob({
+  supabase,
+  jobId,
+  userId,
+  prompt,
+  assetPath,
+  selectedDuration,
+  provider,
+  modelKey,
+}: LaunchWaveSpeedParams) {
+  if (!WAVESPEED_API_KEY) {
+    const message =
+      "WAVESPEED_API_KEY environment variable is missing. WaveSpeed integrations are unavailable.";
+    await failJobAndRefund({
+      supabase,
+      jobId,
+      userId,
+      provider,
+      message,
+      reason: "refund_missing_provider_key",
+    });
+    return NextResponse.json({ error: { message } }, { status: 500 });
+  }
+
+  try {
+    const signedUrl = await ensureSignedUrl(supabase, assetPath);
+    const endpoint =
+      modelKey === "sora2-pro" ? WAVESPEED_PRO_ENDPOINT : WAVESPEED_ENDPOINT;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+      },
+      body: JSON.stringify({
+        prompt,
+        image: signedUrl,
+        duration: selectedDuration,
+      }),
+    });
+
+    const json = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+
+    const code = typeof json?.code === "number" ? json.code : response.status;
+    if (!response.ok || code >= 400) {
+      const detail =
+        typeof json?.message === "string"
+          ? json.message
+          : "WaveSpeed request failed.";
+      await failJobAndRefund({
+        supabase,
+        jobId,
+        userId,
+        provider,
+        message: detail,
+      });
+      return NextResponse.json({ error: { message: detail } }, { status: 502 });
+    }
+
+    const data = (json?.data ?? {}) as Record<string, unknown>;
+    const requestId =
+      (typeof data?.id === "string" && data.id) ||
+      (typeof data?.task_id === "string" && data.task_id) ||
+      null;
+
+    if (!requestId) {
+      const message = "WaveSpeed did not return a task id.";
+      await failJobAndRefund({
+        supabase,
+        jobId,
+        userId,
+        provider,
+        message,
+      });
+      return NextResponse.json({ error: { message } }, { status: 502 });
+    }
+
+    const providerStatus = extractProviderStatus(data?.status);
+    const normalizedStatus = normalizeProviderStatus(providerStatus);
+    const queuePosition = parseQueuePosition(
+      data?.queue_position ??
+        (data?.queue as Record<string, unknown> | undefined)?.position,
+    );
+
     await supabase
       .from("jobs")
       .update({
+        provider,
+        status: normalizedStatus,
+        provider_job_id: requestId,
+        provider_status: providerStatus ?? normalizedStatus,
+        queue_position: queuePosition,
+        provider_error: null,
+      })
+      .eq("id", jobId);
+
+    return NextResponse.json({
+      jobId,
+      status: normalizedStatus,
+      durationSeconds: selectedDuration,
+      requestId,
+      providerStatus: providerStatus ?? normalizedStatus,
+      queuePosition,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "WaveSpeed request failed.";
+    console.error("[sora-job] wavespeed launch error", { jobId, error: message });
+    await failJobAndRefund({
+      supabase,
+      jobId,
+      userId,
+      provider,
+      message,
+    });
+    return NextResponse.json(
+      { error: { message } },
+      { status: 502 },
+    );
+  }
+}
+
+type FailJobParams = {
+  supabase: ReturnType<typeof getServiceClient>;
+  jobId: string;
+  userId: string;
+  provider: ProviderValue;
+  message: string;
+  reason?: string;
+};
+
+async function failJobAndRefund({
+  supabase,
+  jobId,
+  userId,
+  provider,
+  message,
+  reason = "refund_failed_start",
+}: FailJobParams) {
+  try {
+    await supabase.from("credit_ledger").insert({
+      user_id: userId,
+      delta: CREDIT_COST,
+      reason,
+    });
+  } catch (error) {
+    console.error("[sora-job] failed to refund credits", {
+      jobId,
+      error,
+    });
+  }
+
+  try {
+    await supabase
+      .from("jobs")
+      .update({
+        provider,
         status: "failed",
         provider_status: "failed",
         queue_position: null,
         provider_error: message,
       })
       .eq("id", jobId);
-    return NextResponse.json(
-      { error: { message } },
-      { status: 502 },
-    );
+  } catch (error) {
+    console.error("[sora-job] failed to mark job as failed", {
+      jobId,
+      error,
+    });
   }
+}
+
+function extractProviderStatus(candidate: unknown): string | null {
+  return typeof candidate === "string" && candidate.trim().length > 0
+    ? candidate
+    : null;
+}
+
+function normalizeProviderStatus(
+  providerStatus: string | null,
+): "queued" | "processing" | "completed" | "failed" {
+  const normalized = providerStatus?.toLowerCase() ?? "";
+  if (
+    normalized === "queued" ||
+    normalized === "queue" ||
+    normalized === "created" ||
+    normalized === "pending"
+  ) {
+    return "queued";
+  }
+  if (
+    normalized === "processing" ||
+    normalized === "running" ||
+    normalized === "in_progress" ||
+    normalized === "in-progress"
+  ) {
+    return "processing";
+  }
+  if (
+    normalized === "completed" ||
+    normalized === "succeeded" ||
+    normalized === "finished" ||
+    normalized === "success"
+  ) {
+    return "completed";
+  }
+  if (
+    normalized === "failed" ||
+    normalized === "error" ||
+    normalized === "cancelled" ||
+    normalized === "canceled"
+  ) {
+    return "failed";
+  }
+  return "processing";
+}
+
+function parseQueuePosition(candidate: unknown): number | null {
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return candidate;
+  }
+  if (typeof candidate === "string") {
+    const asNumber = Number.parseInt(candidate, 10);
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  return null;
 }
