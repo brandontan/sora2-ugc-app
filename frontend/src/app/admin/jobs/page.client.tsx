@@ -167,7 +167,7 @@ const STATUS_DISPLAY_LABELS: Record<CanonicalStatus, string> = {
   completed: "Completed",
   failed: "Failed",
   cancelled: "Cancelled",
-  user_cancelled: "User cancelled",
+  user_cancelled: "User Cancelled",
   other: "Other",
 };
 
@@ -272,6 +272,12 @@ export function AdminJobsDashboard({
     [enrichedJobs, activeProviderFilters, activeStatusFilters],
   );
 
+  const availableStatuses = useMemo(() => {
+    const unique = new Set<CanonicalStatus>();
+    filteredJobs.forEach((job) => unique.add(job.canonicalStatus));
+    return unique;
+  }, [filteredJobs]);
+
   const totalJobs = filteredJobs.length;
   const activeJobs = filteredJobs.filter((job) => job.isActive).length;
   const completedJobs = filteredJobs.filter((job) =>
@@ -280,15 +286,16 @@ export function AdminJobsDashboard({
   const stuckJobs = filteredJobs.filter((job) => job.isStuck);
 
   const statusDatasetOrder = useMemo(() => {
-    const activeSet = new Set<CanonicalStatus>(
-      activeStatusFilters as CanonicalStatus[],
+    const activeSet = new Set<CanonicalStatus>(activeStatusFilters);
+    const filteredActive = Array.from(activeSet).filter((status) =>
+      availableStatuses.has(status),
     );
-    const ordered = STATUS_ORDER.filter((status) => activeSet.has(status));
-    const remaining = (activeStatusFilters as CanonicalStatus[]).filter(
+    const ordered = STATUS_ORDER.filter((status) => filteredActive.includes(status));
+    const remaining = filteredActive.filter(
       (status) => !STATUS_ORDER.includes(status),
     );
     return [...ordered, ...remaining];
-  }, [activeStatusFilters]);
+  }, [activeStatusFilters, availableStatuses]);
 
   const statusByProviderData = useMemo(() => {
     const providerCounts = new Map<string, Map<CanonicalStatus, number>>();
@@ -306,27 +313,29 @@ export function AdminJobsDashboard({
       providerLabel(provider),
     );
 
-    const datasets = statusDatasetOrder.map((status: CanonicalStatus) => {
-      const background =
-        STATUS_COLORS[status] ?? "rgba(148, 163, 184, 0.6)";
-      return {
-        label: statusLabel(status),
-        backgroundColor: background,
-        borderRadius: 12,
-        data: activeProviderFilters.map((provider) => {
-          const count =
-            providerCounts.get(provider)?.get(status) ?? 0;
-          return count;
-        }),
-        stack: "status",
-      };
-    });
+    const datasets = statusDatasetOrder
+      .filter((status) => availableStatuses.has(status))
+      .map((status) => {
+        const background =
+          STATUS_COLORS[status] ?? "rgba(148, 163, 184, 0.6)";
+        return {
+          label: STATUS_DISPLAY_LABELS[status] ?? statusLabel(status),
+          backgroundColor: background,
+          borderRadius: 12,
+          data: activeProviderFilters.map((provider) => {
+            const count = providerCounts.get(provider)?.get(status) ?? 0;
+            return count;
+          }),
+          stack: "status",
+        };
+      });
 
     return { labels, datasets };
   }, [
     filteredJobs,
     activeProviderFilters,
     statusDatasetOrder,
+    availableStatuses,
   ]);
 
   const timelineData = useMemo(() => {
