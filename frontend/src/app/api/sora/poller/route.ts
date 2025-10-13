@@ -34,7 +34,12 @@ function sanitizeEnv(value: string | undefined | null) {
 
 export async function GET(request: NextRequest) {
   const adminToken = sanitizeEnv(process.env.ADMIN_DASHBOARD_TOKEN);
-  if (!adminToken) {
+  const cronSecret = sanitizeEnv(process.env.CRON_SECRET);
+  const allowedTokens = [adminToken, cronSecret].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  if (allowedTokens.length === 0) {
     return NextResponse.json(
       { error: { message: "Admin token not configured." } },
       { status: 500 },
@@ -50,7 +55,7 @@ export async function GET(request: NextRequest) {
   }
 
   const token = authHeader.slice("Bearer ".length).trim();
-  if (token !== adminToken) {
+  if (!allowedTokens.includes(token)) {
     return NextResponse.json(
       { error: { message: "Unauthorized" } },
       { status: 401 },
