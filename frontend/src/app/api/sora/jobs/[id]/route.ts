@@ -14,7 +14,7 @@ const WAVESPEED_API_KEY = rawWaveSpeedKey
 
 export const runtime = "nodejs";
 
-type JobRow = {
+export type JobRow = {
   id: string;
   user_id: string;
   status: string;
@@ -59,7 +59,7 @@ type FalResultResponse = {
   logs?: unknown;
 };
 
-async function refreshJobFromProvider(job: JobRow): Promise<JobRow> {
+export async function refreshJobFromProvider(job: JobRow): Promise<JobRow> {
   const provider = (job.provider ?? "fal").toLowerCase();
   if (provider === "fal") {
     return refreshFalJob(job);
