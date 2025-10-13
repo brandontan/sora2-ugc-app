@@ -181,7 +181,7 @@ const describeProviderState = (job: Job | null): string | null => {
     case "IN_PROGRESS":
       return `Rendering (checked ${checked})`;
     case "COMPLETED":
-      return `Completed (checked ${checked})`;
+      return checked === "just now" ? "Completed" : `Completed (checked ${checked})`;
     case "FAILED":
       return providerError
         ? `Failed: ${providerError} (checked ${checked})`
