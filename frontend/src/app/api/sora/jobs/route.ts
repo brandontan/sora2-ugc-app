@@ -22,7 +22,8 @@ const requestSchema = z.object({
   provider: ProviderSchema.optional(),
 });
 
-const CREDIT_COST = Number(process.env.SORA_CREDIT_COST ?? 5);
+const CREDIT_COST_STANDARD = Number(process.env.SORA_CREDIT_COST ?? 5);
+const CREDIT_COST_PRO = Number(process.env.SORA_CREDIT_COST_PRO ?? 7);
 const FAL_MODEL =
   process.env.FAL_SORA_MODEL_ID ?? "fal-ai/sora-2/image-to-video";
 const FAL_MODEL_PRO =
@@ -100,12 +101,14 @@ export async function POST(request: NextRequest) {
   const modelKey: ModelValue = requestedModel ?? "sora2";
   const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
   const aspectRatio = requestedAspectRatio ?? "16:9";
+  const creditCost =
+    modelKey === "sora2-pro" ? CREDIT_COST_PRO : CREDIT_COST_STANDARD;
   console.log("[sora-job] incoming", {
     userToken: token.slice(0, 16),
     durationSeconds,
     model: requestedModel,
     aspectRatio: requestedAspectRatio,
-    creditCost: CREDIT_COST,
+    creditCost,
     provider,
   });
   const automationSecret = process.env.AUTOMATION_SECRET;
@@ -120,12 +123,12 @@ export async function POST(request: NextRequest) {
         : "mock-user";
     const currentBalance = sumLedgerForUser(userId);
 
-    if (currentBalance < CREDIT_COST) {
+    if (currentBalance < creditCost) {
       return NextResponse.json(
         {
           error: {
             message:
-              `Balance is too low. Each video costs ${CREDIT_COST} credits. Add more credits before launching another job.`,
+              `Balance is too low. Each video costs ${creditCost} credits. Add more credits before launching another job.`,
           },
         },
         { status: 402 },
@@ -143,7 +146,7 @@ export async function POST(request: NextRequest) {
     pushLedger({
       id: crypto.randomUUID(),
       user_id: userId,
-      delta: -CREDIT_COST,
+      delta: -creditCost,
       reason: "sora_generation_mock",
       created_at: createdAt,
     });
@@ -154,7 +157,7 @@ export async function POST(request: NextRequest) {
       prompt: `${prompt} (duration ${selectedDuration}s)`,
       status: "processing",
       video_url: null,
-      credit_cost: CREDIT_COST,
+      credit_cost: creditCost,
       provider_job_id: providerId,
       created_at: createdAt,
       provider,
@@ -200,7 +203,7 @@ export async function POST(request: NextRequest) {
 
     await serviceClient.from("credit_ledger").insert({
       user_id: user.id,
-      delta: -CREDIT_COST,
+      delta: -creditCost,
       reason: "automation_sora_job",
     });
 
@@ -212,7 +215,7 @@ export async function POST(request: NextRequest) {
       status: "completed",
       video_url: videoUrl,
       provider_job_id: null,
-      credit_cost: CREDIT_COST,
+      credit_cost: creditCost,
       provider,
       provider_status: "completed",
       queue_position: null,
@@ -244,12 +247,12 @@ export async function POST(request: NextRequest) {
     0,
   );
 
-  if (!currentBalance || currentBalance < CREDIT_COST) {
+  if (!currentBalance || currentBalance < creditCost) {
     return NextResponse.json(
       {
         error: {
           message:
-            `Balance is too low. Each video costs ${CREDIT_COST} credits. Add more credits before launching another job.`,
+            `Balance is too low. Each video costs ${creditCost} credits. Add more credits before launching another job.`,
         },
       },
       { status: 402 },
@@ -260,12 +263,12 @@ export async function POST(request: NextRequest) {
     p_user_id: user.id,
     p_prompt: prompt,
     p_asset_path: assetPath,
-    p_credit_cost: CREDIT_COST,
+    p_credit_cost: creditCost,
   });
 
   console.log("[sora-job] reserved credits", {
     userId: user.id,
-    creditCost: CREDIT_COST,
+    creditCost,
     result: data,
     error,
   });
@@ -344,6 +347,7 @@ export async function POST(request: NextRequest) {
     provider,
     message: `Unsupported provider "${provider}".`,
     reason: "refund_failed_start",
+    creditCost,
   });
 
   return NextResponse.json(
@@ -645,6 +649,7 @@ type FailJobParams = {
   provider: ProviderValue;
   message: string;
   reason?: string;
+  creditCost?: number;
 };
 
 async function failJobAndRefund({
@@ -654,11 +659,22 @@ async function failJobAndRefund({
   provider,
   message,
   reason = "refund_failed_start",
+  creditCost,
 }: FailJobParams) {
+  let refundAmount = creditCost;
+  if (refundAmount == null) {
+    const { data: jobRow } = await supabase
+      .from("jobs")
+      .select("credit_cost")
+      .eq("id", jobId)
+      .maybeSingle();
+    refundAmount = jobRow?.credit_cost ?? CREDIT_COST_STANDARD;
+  }
+
   try {
     await supabase.from("credit_ledger").insert({
       user_id: userId,
-      delta: CREDIT_COST,
+      delta: refundAmount,
       reason,
     });
   } catch (error) {

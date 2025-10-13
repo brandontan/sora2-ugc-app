@@ -12,7 +12,7 @@ if (shouldUseMock) {
   process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'mock-service-role';
   process.env.SITE_URL ??= 'http://127.0.0.1:3000';
   process.env.SORA_CREDIT_COST ??= '5';
-  process.env.SORA_CREDIT_PACK_SIZE ??= '15';
+process.env.SORA_CREDIT_PACK_SIZE ??= '75';
 }
 
 const PORT = 3000;
@@ -29,7 +29,7 @@ const normalizedSiteUrl = process.env.SITE_URL.endsWith('/')
 process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL ??= `${normalizedSiteUrl}/dashboard`;
 process.env.SORA_CREDIT_COST ??= process.env.NEXT_PUBLIC_SORA_CREDIT_COST ?? process.env.SORA_CREDIT_COST ?? '5';
 process.env.SORA_CREDIT_PACK_SIZE ??=
-  process.env.NEXT_PUBLIC_SORA_CREDIT_PACK_SIZE ?? process.env.SORA_CREDIT_PACK_SIZE ?? '15';
+  process.env.NEXT_PUBLIC_SORA_CREDIT_PACK_SIZE ?? process.env.SORA_CREDIT_PACK_SIZE ?? '75';
 process.env.FAL_SORA_MODEL_ID ??= process.env.NEXT_PUBLIC_FAL_SORA_MODEL_ID ?? 'fal-ai/sora-2/image-to-video';
 process.env.FAL_VIDEO_DURATION_SECONDS ??=
   process.env.NEXT_PUBLIC_FAL_VIDEO_DURATION_SECONDS ?? '20';
@@ -73,7 +73,7 @@ export default defineConfig({
       STRIPE_WEBHOOK_SECRET:
         process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_gElUyDPbvdNMs1koSLyxo2xBxYupnk9n',
       SORA_CREDIT_COST: process.env.SORA_CREDIT_COST ?? '5',
-      SORA_CREDIT_PACK_SIZE: process.env.SORA_CREDIT_PACK_SIZE ?? '15',
+      SORA_CREDIT_PACK_SIZE: process.env.SORA_CREDIT_PACK_SIZE ?? '75',
       FAL_KEY: process.env.FAL_KEY ?? 'mock-fal-key',
       FAL_SORA_MODEL_ID: process.env.FAL_SORA_MODEL_ID ?? 'fal-ai/sora-2/image-to-video',
       FAL_VIDEO_DURATION_SECONDS: process.env.FAL_VIDEO_DURATION_SECONDS ?? '20',
