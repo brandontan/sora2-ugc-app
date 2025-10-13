@@ -89,17 +89,6 @@ const PROVIDER_CONFIG = {
   },
 } as const;
 
-const PROVIDER_OPTIONS = [
-  {
-    value: PROVIDER_CONFIG.fal.value,
-    label: PROVIDER_CONFIG.fal.label,
-  },
-  {
-    value: PROVIDER_CONFIG.wavespeed.value,
-    label: PROVIDER_CONFIG.wavespeed.label,
-  },
-] as const;
-
 function getProviderLabel(provider: string | null | undefined) {
   const key = (provider ?? "fal").toLowerCase();
   switch (key) {
@@ -129,9 +118,31 @@ type ProviderKey = keyof typeof PROVIDER_CONFIG;
 
 const MAX_PROMPT_LENGTH = 2000;
 
-const DEFAULT_PROVIDER: ProviderKey = "fal";
+const DEFAULT_PROVIDER: ProviderKey = "wavespeed";
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
   PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
+
+const FINAL_JOB_STATUSES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "cancelled_user",
+  "policy_blocked",
+]);
+
+const ACTIVE_JOB_STATUSES = new Set([
+  "processing",
+  "queued",
+  "queueing",
+  "pending",
+  "submitted",
+  "in_progress",
+  "started",
+]);
+
+const normalizeStatus = (status: string) => status.toLowerCase();
+const isFinalStatus = (status: string) => FINAL_JOB_STATUSES.has(normalizeStatus(status));
+const isActiveStatus = (status: string) => ACTIVE_JOB_STATUSES.has(normalizeStatus(status));
 
 const formatRelativeTime = (iso: string | null | undefined): string => {
   if (!iso) return "just now";
@@ -193,7 +204,6 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState<ProviderKey>(DEFAULT_PROVIDER);
   const [aspectRatio, setAspectRatio] =
     useState<AspectRatioOption>(DEFAULT_ASPECT_RATIO);
   const [duration, setDuration] = useState<number>(
@@ -201,26 +211,25 @@ export default function Dashboard() {
   );
   const [model, setModel] =
     useState<(typeof MODEL_OPTIONS)[number]["value"]>(MODEL_OPTIONS[0].value);
-  const [falResolution, setFalResolution] = useState<
-    (typeof PROVIDER_CONFIG.fal.resolutions)[number]
-  >(PROVIDER_CONFIG.fal.resolutions[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
   const [isFetching, setIsFetching] = useState(false);
   const [productPreviewUrl, setProductPreviewUrl] = useState<string | null>(null);
   const [cancellingJobIds, setCancellingJobIds] = useState<Record<string, boolean>>({});
+  const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
+    undefined,
+  );
+  const provider: ProviderKey = DEFAULT_PROVIDER;
 
   const resetFormState = useCallback(() => {
     console.log("[dashboard] resetFormState invoked");
     setPrompt("");
     setFile(null);
     setProductPreviewUrl(null);
-    setProvider(DEFAULT_PROVIDER);
     setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
     setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
     setModel(MODEL_OPTIONS[0].value);
-    setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
     setMessage(null);
     setMessageTone("neutral");
     setIsSubmitting(false);
@@ -245,8 +254,7 @@ export default function Dashboard() {
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
     : null;
 
-  const providerConfig = useMemo(() => PROVIDER_CONFIG[provider], [provider]);
-  const isFalProvider = provider === "fal";
+  const providerConfig = PROVIDER_CONFIG[provider];
 
   const selectedModelLabel = useMemo(() => {
     const match = MODEL_OPTIONS.find((item) => item.value === model);
@@ -268,21 +276,6 @@ export default function Dashboard() {
   }, [providerConfig, duration]);
 
   useEffect(() => {
-    if (!isFalProvider && model !== "sora2") {
-      setModel("sora2");
-    }
-  }, [isFalProvider, model]);
-
-  useEffect(() => {
-    if (provider === "fal") {
-      const options = PROVIDER_CONFIG.fal.resolutions;
-      if (!options.includes(falResolution)) {
-        setFalResolution(options[0]);
-      }
-    }
-  }, [provider, falResolution]);
-
-  useEffect(() => {
     if (!file) {
       setProductPreviewUrl(null);
       return;
@@ -294,43 +287,49 @@ export default function Dashboard() {
     };
   }, [file]);
 
+  const activeJobs = useMemo(
+    () => jobs.filter((job) => isActiveStatus(job.status)),
+    [jobs],
+  );
+
+  useEffect(() => {
+    if (focusedJobId && !jobs.some((job) => job.id === focusedJobId)) {
+      setFocusedJobId(undefined);
+    }
+  }, [focusedJobId, jobs]);
+
+  useEffect(() => {
+    if (focusedJobId !== undefined) return;
+    const nextJob = activeJobs[0] ?? jobs[0] ?? null;
+    setFocusedJobId(nextJob ? nextJob.id : null);
+  }, [focusedJobId, activeJobs, jobs]);
+
   const featuredJob = useMemo(() => {
-    if (!jobs.length) return null;
-    const activeStatuses = new Set([
-      "processing",
-      "queued",
-      "queueing",
-      "pending",
-      "submitted",
-      "in_progress",
-      "started",
-    ]);
+    if (!focusedJobId) return null;
+    return jobs.find((job) => job.id === focusedJobId) ?? null;
+  }, [focusedJobId, jobs]);
 
-    const activeJob = jobs.find((job) => activeStatuses.has(job.status));
-    if (activeJob) return activeJob;
-
-    const completedJob = jobs.find(
-      (job) => job.status === "completed" && Boolean(job.video_url),
-    );
-    if (completedJob) return completedJob;
-
-    return null;
-  }, [jobs]);
+  const jobTrayItems = useMemo(() => {
+    const prioritized = [...activeJobs, ...jobs];
+    const seen = new Set<string>();
+    const result: Job[] = [];
+    for (const job of prioritized) {
+      if (seen.has(job.id)) continue;
+      seen.add(job.id);
+      result.push(job);
+      if (result.length >= 6) break;
+    }
+    return result;
+  }, [activeJobs, jobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
+  const isFeaturedFinal = featuredJob ? isFinalStatus(featuredJob.status) : false;
   const featuredVideoStatus = featuredJob
-    ? ["cancelled", "cancelled_user", "failed", "policy_blocked"].includes(
-        featuredJob.status,
-      )
+    ? isFeaturedFinal && normalizeStatus(featuredJob.status) !== "completed"
       ? null
       : featuredJob.status
     : null;
-  const isFeaturedFinal = featuredJob
-    ? ["completed", "failed", "cancelled", "cancelled_user", "policy_blocked"].includes(
-        featuredJob.status,
-      )
-    : false;
-  const isFeaturedCancellable = featuredJob ? !isFeaturedFinal : false;
+  const isFeaturedCancellable = featuredJob ? !isFinalStatus(featuredJob.status) : false;
   const isFeaturedCancelling = featuredJob
     ? Boolean(cancellingJobIds[featuredJob.id])
     : false;
@@ -521,6 +520,10 @@ export default function Dashboard() {
           );
         }
 
+        if (focusedJobId === jobId) {
+          setFocusedJobId(undefined);
+        }
+
         setMessageTone("neutral");
         setMessage("Job cancelled. Credits stay reserved for this run.");
         await Promise.all([refreshBalance(), refreshJobs()]);
@@ -535,7 +538,7 @@ export default function Dashboard() {
         });
       }
     },
-    [authFetch, refreshBalance, refreshJobs],
+    [authFetch, focusedJobId, refreshBalance, refreshJobs],
   );
 
   useEffect(() => {
@@ -640,15 +643,10 @@ export default function Dashboard() {
       provider,
     };
 
-    if (provider === "fal") {
-      payload.resolution = falResolution;
-    }
-    if (provider === "wavespeed") {
-      const sizesByAspect = PROVIDER_CONFIG.wavespeed.sizesByAspect;
-      payload.size =
-        sizesByAspect[aspectRatio]?.[0] ??
-        sizesByAspect[PROVIDER_CONFIG.wavespeed.aspectRatios[0]][0];
-    }
+    const sizesByAspect = PROVIDER_CONFIG.wavespeed.sizesByAspect;
+    payload.size =
+      sizesByAspect[aspectRatio]?.[0] ??
+      sizesByAspect[PROVIDER_CONFIG.wavespeed.aspectRatios[0]][0];
 
     const response = await authFetch("/api/sora/jobs", {
       method: "POST",
@@ -687,9 +685,6 @@ export default function Dashboard() {
       (providerConfig.aspectRatios as readonly AspectRatioOption[])[0];
     setDuration(resetDuration);
     setAspectRatio(resetAspect);
-    if (provider === "fal") {
-      setFalResolution(PROVIDER_CONFIG.fal.resolutions[0]);
-    }
     const uploadInput = document.getElementById(
       "product-file",
     ) as HTMLInputElement | null;
@@ -894,8 +889,109 @@ export default function Dashboard() {
                       </span>
                     </div>
                   ) : null}
+                  {featuredJob ? (
+                    <div className="absolute bottom-4 left-4 flex flex-col items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFocusedJobId(null)}
+                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                      >
+                        Background job
+                      </button>
+                      <span className="rounded-full bg-background/70 px-3 py-1 text-[0.65rem] text-muted-foreground">
+                        Sends this run to the tray so you can set up another.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
+
+              {jobTrayItems.length > 0 ? (
+                <div className="mt-6">
+                  <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                    Job tray
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    {jobTrayItems.map((job) => {
+                      const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
+                      const statusLabel =
+                        job.status === "cancelled_user"
+                          ? "cancelled"
+                          : job.status.replace(/_/g, " ");
+                      const jobFinal = isFinalStatus(job.status);
+                      const jobCancelling = Boolean(cancellingJobIds[job.id]);
+                      const jobProviderSummary = describeProviderState(job);
+                      return (
+                        <div
+                          key={job.id}
+                          className={`flex w-full flex-col gap-2 rounded-2xl border bg-secondary/40 p-4 text-left shadow-sm sm:w-[260px] ${
+                            isFocused ? "border-primary/70 shadow-primary/20" : "border-border/70"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
+                              {statusLabel}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setFocusedJobId(job.id)}
+                              className={`rounded-full border px-3 py-1 text-[0.65rem] font-semibold transition ${
+                                isFocused
+                                  ? "border-primary/60 bg-primary/15 text-primary"
+                                  : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              {isFocused ? "In preview" : "Bring forward"}
+                            </button>
+                          </div>
+                          <p className="text-xs font-semibold text-foreground">
+                            {job.prompt.length > 70 ? `${job.prompt.slice(0, 70)}…` : job.prompt}
+                          </p>
+                          <p className="text-[0.65rem] text-muted-foreground">
+                            {formatRelativeTime(job.created_at)}
+                          </p>
+                          {jobProviderSummary ? (
+                            <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2 pt-2">
+                            {jobFinal && job.video_url ? (
+                              <a
+                                href={job.video_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                              >
+                                Download
+                                <ArrowRight className="h-3 w-3" />
+                              </a>
+                            ) : null}
+                            {!jobFinal ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelJob(job.id)}
+                                disabled={jobCancelling}
+                                className="inline-flex items-center gap-2 rounded-full border border-border/70 px-3 py-1 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {jobCancelling ? (
+                                  <>
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Cancelling…
+                                  </>
+                                ) : (
+                                  <>
+                                    <Trash2 className="h-3 w-3" />
+                                    Cancel
+                                  </>
+                                )}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               {featuredProviderSummary ? (
                 <p className="text-xs text-muted-foreground">
@@ -1001,49 +1097,14 @@ export default function Dashboard() {
                       <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
                         Provider
                       </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {PROVIDER_OPTIONS.map((option) => {
-                          const isActive = provider === option.value;
-                          return (
-                            <button
-                              type="button"
-                              key={option.value}
-                              onClick={() => setProvider(option.value)}
-                              aria-pressed={isActive}
-                              className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                                isActive
-                                  ? "border-primary/70 bg-primary/15 text-primary"
-                                  : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
+                      <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/40 px-4 py-3">
+                        <span className="text-sm font-semibold text-foreground">
+                          {PROVIDER_CONFIG.wavespeed.label}
+                        </span>
+                        <p className="text-xs text-muted-foreground">
+                          {providerConfig.helper}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">{providerConfig.helper}</p>
-                      {isFalProvider ? (
-                        <div className="space-y-1">
-                          <p className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
-                            Resolution
-                          </p>
-                          <select
-                            value={falResolution}
-                            onChange={(event) =>
-                              setFalResolution(
-                                event.target.value as (typeof PROVIDER_CONFIG.fal.resolutions)[number],
-                              )
-                            }
-                            className="w-full rounded-2xl border border-border/70 bg-secondary/40 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                          >
-                            {PROVIDER_CONFIG.fal.resolutions.map((option) => (
-                              <option key={option} value={option}>
-                                {option === "auto" ? "Auto (provider default)" : option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : null}
                     </div>
 
                     <div className="space-y-2">
@@ -1053,21 +1114,17 @@ export default function Dashboard() {
                       <div className="grid grid-cols-2 gap-3">
                         {MODEL_OPTIONS.map((option) => {
                           const isActive = model === option.value;
-                          const isDisabled = !isFalProvider && option.value === "sora2-pro";
                           return (
                             <button
                               type="button"
                               key={option.value}
-                              onClick={() => {
-                                if (!isDisabled) setModel(option.value);
-                              }}
+                              onClick={() => setModel(option.value)}
                               aria-pressed={isActive}
-                              disabled={isDisabled}
                               className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
                                 isActive
                                   ? "border-primary/70 bg-primary/15 text-primary"
                                   : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
-                              } ${isDisabled ? "cursor-not-allowed opacity-40 hover:text-muted-foreground" : ""}`}
+                              }`}
                             >
                               <span>{option.label}</span>
                               <span className="text-[10px] font-normal text-muted-foreground">
@@ -1077,11 +1134,6 @@ export default function Dashboard() {
                           );
                         })}
                       </div>
-                      {!isFalProvider ? (
-                        <p className="text-[0.65rem] text-muted-foreground">
-                          Sora2 Pro is only available on fal.ai.
-                        </p>
-                      ) : null}
                     </div>
 
                     <div className="grid gap-6 md:grid-cols-2">
@@ -1191,135 +1243,7 @@ export default function Dashboard() {
           </form>
         </section>
 
-        <section className="glass-surface rounded-[28px] border border-border/60 p-8">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Activity</p>
-              <h2 className="text-2xl font-semibold text-foreground">Latest 5 runs</h2>
-            </div>
-            <div className="flex flex-col gap-2 text-xs text-muted-foreground md:items-end">
-              <p>Keep an eye on your most recent generations.</p>
-              <button
-                type="button"
-                onClick={refreshJobs}
-                className="inline-flex items-center gap-2 self-start rounded-full border border-border/70 px-5 py-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground md:self-auto"
-              >
-                Refresh jobs
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            {jobs.length === 0 ? (
-              <div className="rounded-3xl border border-border/60 bg-secondary/40 p-6 text-sm text-muted-foreground">
-                No jobs yet. Launch your first Sora2 generation to populate this feed.
-              </div>
-            ) : (
-              jobs.slice(0, 5).map((job) => {
-                const createdAt = new Date(job.created_at).toLocaleString();
-                const statusLabel =
-                  job.status === "cancelled_user"
-                    ? "cancelled"
-                    : job.status.replace(/_/g, " ");
-                const isComplete = job.status === "completed" && Boolean(job.video_url);
-                const isFinalStatus =
-                  job.status === "completed" ||
-                  job.status === "failed" ||
-                  job.status === "cancelled" ||
-                  job.status === "cancelled_user" ||
-                  job.status === "policy_blocked";
-                const isCancellable = !isFinalStatus;
-                const isCancelling = Boolean(cancellingJobIds[job.id]);
-                const providerSummary = describeProviderState(job);
-                return (
-                  <div
-                    key={job.id}
-                    className="flex flex-col gap-4 rounded-3xl border border-border/70 bg-secondary/30 p-6 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-foreground">
-                        {job.prompt.length > 110 ? `${job.prompt.slice(0, 110)}…` : job.prompt}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{createdAt}</p>
-                      <p className="text-xs text-muted-foreground">Credit cost: {job.credit_cost}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Provider: {getProviderLabel(job.provider)}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-3 md:items-end">
-                      <span
-                        className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] ${
-                          job.status === "completed"
-                            ? "bg-emerald-500/15 text-emerald-300"
-                            : job.status === "processing"
-                              ? "bg-primary/15 text-primary"
-                              : job.status === "policy_blocked"
-                                ? "bg-red-500/15 text-red-300"
-                              : "bg-border/40 text-muted-foreground"
-                        }`}
-                      >
-                        {statusLabel}
-                      </span>
-                      {isComplete ? (
-                        <a
-                          href={job.video_url ?? "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow shadow-primary/30 transition hover:bg-primary/90"
-                        >
-                          Download MP4
-                          <ArrowRight className="h-3 w-3" />
-                        </a>
-                      ) : isCancellable ? (
-                        <div className="flex flex-col items-start gap-2 md:items-end">
-                          <button
-                            type="button"
-                            onClick={() => handleCancelJob(job.id)}
-                            disabled={isCancelling}
-                            className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isCancelling ? (
-                              <>
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Cancelling…
-                              </>
-                            ) : (
-                              "Cancel job"
-                            )}
-                          </button>
-                          <span className="text-xs text-muted-foreground">
-                            {providerSummary
-                              ? providerSummary
-                              : job.status === "processing"
-                                ? "Rendering in provider—cancelling will still use the credits."
-                                : "Queued today—cancelling keeps credits for this run."}
-                          </span>
-                        </div>
-                      ) : job.status === "cancelled" ? (
-                        <span className="text-xs text-muted-foreground">Cancelled. Credits returned.</span>
-                      ) : job.status === "cancelled_user" ? (
-                        <span className="text-xs text-muted-foreground">Cancelled early. Credits remain used.</span>
-                      ) : job.status === "cancelled_user" ? (
-                        <span className="text-xs text-muted-foreground">Cancelled early. Credits remain used.</span>
-                      ) : job.status === "failed" ? (
-                        <span className="text-xs text-muted-foreground">
-                          Generation failed. Credits already refunded.
-                          {job.provider_error
-                            ? ` Provider note: ${job.provider_error}`
-                            : ""}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {job.status === "processing" ? "Sora2 is rendering…" : "Awaiting next update"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
+        
       </main>
     </div>
   );
