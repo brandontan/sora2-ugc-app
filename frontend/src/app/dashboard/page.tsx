@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { ArrowRight, Loader2, Sparkles, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Eye,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
 import { getPricingSummary } from "@/lib/pricing";
@@ -143,6 +151,8 @@ const ACTIVE_JOB_STATUSES = new Set([
 const normalizeStatus = (status: string) => status.toLowerCase();
 const isFinalStatus = (status: string) => FINAL_JOB_STATUSES.has(normalizeStatus(status));
 const isActiveStatus = (status: string) => ACTIVE_JOB_STATUSES.has(normalizeStatus(status));
+const isTrayStatus = (status: string) =>
+  normalizeStatus(status) === "completed" || isActiveStatus(status);
 
 const formatRelativeTime = (iso: string | null | undefined): string => {
   if (!iso) return "just now";
@@ -220,6 +230,10 @@ export default function Dashboard() {
   const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
     undefined,
   );
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const provider: ProviderKey = DEFAULT_PROVIDER;
 
   const resetFormState = useCallback(() => {
@@ -234,6 +248,8 @@ export default function Dashboard() {
     setMessageTone("neutral");
     setIsSubmitting(false);
     setCancellingJobIds({});
+    setExpandedJobId(null);
+    setDismissedJobIds(new Set());
     const uploadInput = document.getElementById(
       "product-file",
     ) as HTMLInputElement | null;
@@ -287,9 +303,12 @@ export default function Dashboard() {
     };
   }, [file]);
 
-  const activeJobs = useMemo(
-    () => jobs.filter((job) => isActiveStatus(job.status)),
-    [jobs],
+  const trayJobs = useMemo(
+    () =>
+      jobs.filter(
+        (job) => isTrayStatus(job.status) && !dismissedJobIds.has(job.id),
+      ),
+    [jobs, dismissedJobIds],
   );
 
   useEffect(() => {
@@ -299,10 +318,16 @@ export default function Dashboard() {
   }, [focusedJobId, jobs]);
 
   useEffect(() => {
+    if (expandedJobId && !trayJobs.some((job) => job.id === expandedJobId)) {
+      setExpandedJobId(null);
+    }
+  }, [expandedJobId, trayJobs]);
+
+  useEffect(() => {
     if (focusedJobId !== undefined) return;
-    const nextJob = activeJobs[0] ?? jobs[0] ?? null;
+    const nextJob = trayJobs[0] ?? null;
     setFocusedJobId(nextJob ? nextJob.id : null);
-  }, [focusedJobId, activeJobs, jobs]);
+  }, [focusedJobId, trayJobs]);
 
   const featuredJob = useMemo(() => {
     if (!focusedJobId) return null;
@@ -310,7 +335,7 @@ export default function Dashboard() {
   }, [focusedJobId, jobs]);
 
   const jobTrayItems = useMemo(() => {
-    const prioritized = [...activeJobs, ...jobs];
+    const prioritized = [...trayJobs];
     const seen = new Set<string>();
     const result: Job[] = [];
     for (const job of prioritized) {
@@ -320,7 +345,7 @@ export default function Dashboard() {
       if (result.length >= 6) break;
     }
     return result;
-  }, [activeJobs, jobs]);
+  }, [trayJobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
   const isFeaturedFinal = featuredJob ? isFinalStatus(featuredJob.status) : false;
@@ -523,6 +548,11 @@ export default function Dashboard() {
         if (focusedJobId === jobId) {
           setFocusedJobId(undefined);
         }
+        setDismissedJobIds((prev) => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
 
         setMessageTone("neutral");
         setMessage("Job cancelled. Credits stay reserved for this run.");
@@ -914,56 +944,136 @@ export default function Dashboard() {
                   <div className="mt-3 flex flex-wrap gap-3">
                     {jobTrayItems.map((job) => {
                       const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
-                      const statusLabel =
-                        job.status === "cancelled_user"
-                          ? "cancelled"
-                          : job.status.replace(/_/g, " ");
+                      const normalizedStatus = normalizeStatus(job.status);
+                      const isCompleted = normalizedStatus === "completed";
+                      const statusLabel = job.status.replace(/_/g, " ");
                       const jobFinal = isFinalStatus(job.status);
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
+                      const isExpanded = isCompleted && expandedJobId === job.id;
+                      const cardWidthClass = isExpanded ? "sm:w-96" : "sm:w-52";
+                      const cardBorderClass = isFocused
+                        ? "border-primary/70 shadow-primary/20"
+                        : "border-border/70";
+                      const cardBgClass = isExpanded ? "bg-secondary/50" : "bg-secondary/40";
+
+                      const handlePreview = () => {
+                        setFocusedJobId(job.id);
+                      };
+
+                      const toggleExpanded = () => {
+                        if (!isCompleted) return;
+                        setExpandedJobId((prev) => (prev === job.id ? null : job.id));
+                        setFocusedJobId(job.id);
+                      };
+
+                      const handleClearJob = () => {
+                        setDismissedJobIds((prev) => {
+                          const next = new Set(prev);
+                          next.add(job.id);
+                          return next;
+                        });
+                        if (expandedJobId === job.id) {
+                          setExpandedJobId(null);
+                        }
+                        if (focusedJobId === job.id) {
+                          setFocusedJobId(null);
+                        }
+                      };
+
                       return (
                         <div
                           key={job.id}
-                          className={`flex w-full flex-col gap-2 rounded-2xl border bg-secondary/40 p-4 text-left shadow-sm sm:w-[260px] ${
-                            isFocused ? "border-primary/70 shadow-primary/20" : "border-border/70"
-                          }`}
+                          className={`flex w-full flex-col gap-3 rounded-2xl border ${cardBgClass} ${cardBorderClass} ${cardWidthClass} p-4 text-left shadow-sm transition-all duration-300`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
-                              {statusLabel}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setFocusedJobId(job.id)}
-                              className={`rounded-full border px-3 py-1 text-[0.65rem] font-semibold transition ${
-                                isFocused
-                                  ? "border-primary/60 bg-primary/15 text-primary"
-                                  : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
+                            <span
+                              className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.3em] ${
+                                isCompleted
+                                  ? "bg-emerald-500/15 text-emerald-200"
+                                  : jobFinal
+                                    ? "bg-border/40 text-muted-foreground"
+                                    : normalizedStatus === "processing"
+                                      ? "bg-primary/15 text-primary"
+                                      : "bg-border/40 text-muted-foreground"
                               }`}
                             >
-                              {isFocused ? "In preview" : "Bring forward"}
-                            </button>
+                              {statusLabel}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={handlePreview}
+                                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[0.65rem] font-semibold transition ${
+                                  isFocused
+                                    ? "border-primary/60 bg-primary/15 text-primary"
+                                    : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
+                                }`}
+                              >
+                                <Eye className="h-3 w-3" />
+                                {isFocused ? "Previewing" : "Preview"}
+                              </button>
+                              {isCompleted && job.video_url ? (
+                                <button
+                                  type="button"
+                                  onClick={toggleExpanded}
+                                  aria-expanded={isExpanded}
+                                  className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/40 p-1 text-muted-foreground transition hover:border-border hover:text-foreground"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronDown className="h-3 w-3" />
+                                  )}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                          <p className="text-xs font-semibold text-foreground">
-                            {job.prompt.length > 70 ? `${job.prompt.slice(0, 70)}…` : job.prompt}
-                          </p>
-                          <p className="text-[0.65rem] text-muted-foreground">
-                            {formatRelativeTime(job.created_at)}
-                          </p>
-                          {jobProviderSummary ? (
-                            <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-foreground line-clamp-2">
+                              {job.prompt}
+                            </p>
+                            <p className="text-[0.65rem] text-muted-foreground">
+                              {formatRelativeTime(job.created_at)}
+                            </p>
+                            <p className="text-[0.65rem] text-muted-foreground">
+                              Provider: {getProviderLabel(job.provider)}
+                            </p>
+                            {jobProviderSummary ? (
+                              <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
+                            ) : null}
+                          </div>
+                          {isExpanded && isCompleted && job.video_url ? (
+                            <div className="overflow-hidden rounded-xl border border-border/60 bg-background/40">
+                              <video
+                                src={job.video_url}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                className="h-48 w-full object-cover"
+                              />
+                            </div>
                           ) : null}
                           <div className="flex flex-wrap items-center gap-2 pt-2">
-                            {jobFinal && job.video_url ? (
-                              <a
-                                href={job.video_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
-                              >
-                                Download
-                                <ArrowRight className="h-3 w-3" />
-                              </a>
+                            {isCompleted && job.video_url ? (
+                              <>
+                                <a
+                                  href={job.video_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  Download
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={handleClearJob}
+                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 px-3 py-1 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                                >
+                                  Clear
+                                </button>
+                              </>
                             ) : null}
                             {!jobFinal ? (
                               <button
