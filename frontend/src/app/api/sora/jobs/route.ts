@@ -277,20 +277,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const jobId = data?.job_id ?? data?.id ?? data;
+  const jobRecord = Array.isArray(data) ? data[0] : data;
+  const jobId =
+    typeof jobRecord === "string"
+      ? jobRecord
+      : typeof jobRecord === "object" && jobRecord !== null
+        ? typeof jobRecord.job_id === "string"
+          ? jobRecord.job_id
+          : typeof jobRecord.id === "string"
+            ? jobRecord.id
+            : null
+        : null;
 
   if (!jobId) {
     return NextResponse.json(
-    { error: { message: "Job id missing." } },
-    { status: 500 },
-  );
-}
+      { error: { message: "Job id missing." } },
+      { status: 500 },
+    );
+  }
 
-await supabase.from("assets").insert({
-  user_id: user.id,
-  storage_path: assetPath,
-  kind: "product",
-});
+  await supabase.from("assets").insert({
+    user_id: user.id,
+    storage_path: assetPath,
+    kind: "product",
+  });
 
   await supabase.from("jobs").update({ provider }).eq("id", jobId);
 
