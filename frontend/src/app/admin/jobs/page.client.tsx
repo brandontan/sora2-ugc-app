@@ -49,8 +49,18 @@ type AdminJob = {
   updated_at: string | null;
 };
 
+type CanonicalStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "user_cancelled"
+  | "other";
+
 type EnrichedJob = AdminJob & {
   normalizedStatus: string;
+  canonicalStatus: CanonicalStatus;
   providerKey: string;
   lastUpdateISO: string;
   minutesSinceUpdate: number;
@@ -64,31 +74,53 @@ export type AdminJobsDashboardProps = {
   limit: number;
 };
 
-const ACTIVE_STATUSES = new Set([
+const STATUS_ORDER: CanonicalStatus[] = [
+  "completed",
   "processing",
   "queued",
-  "queueing",
-  "pending",
-  "submitted",
-  "in_progress",
-  "started",
+  "failed",
+  "cancelled",
+  "user_cancelled",
+  "other",
+];
+
+const STATUS_CANONICAL_MAP: Record<string, CanonicalStatus> = {
+  queued: "queued",
+  queueing: "queued",
+  processing: "processing",
+  pending: "processing",
+  submitted: "processing",
+  in_progress: "processing",
+  started: "processing",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+  cancelled_user: "user_cancelled",
+  policy_blocked: "failed",
+};
+
+const ACTIVE_CANONICAL_STATUSES = new Set<CanonicalStatus>([
+  "processing",
+  "queued",
 ]);
 
-const COMPLETED_STATUSES = new Set(["completed"]);
+const COMPLETED_CANONICAL_STATUSES = new Set<CanonicalStatus>([
+  "completed",
+]);
 
 const PROVIDER_LABELS: Record<string, string> = {
   fal: "fal.ai",
   wavespeed: "WaveSpeed",
 };
 
-const STATUS_COLORS: Record<string, string> = {
+const STATUS_COLORS: Record<CanonicalStatus, string> = {
   completed: "#34d399",
   processing: "#60a5fa",
   queued: "#fbbf24",
-  queueing: "#fbbf24",
   failed: "#f87171",
   cancelled: "#f97316",
-  cancelled_user: "#fb7185",
+  user_cancelled: "#fb7185",
+  other: "#94a3b8",
 };
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -129,8 +161,28 @@ const formatBucketLabel = (timestamp: number) => {
 const providerLabel = (provider: string) =>
   PROVIDER_LABELS[provider] ?? provider.toUpperCase();
 
-const statusLabel = (status: string) =>
-  status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+const STATUS_DISPLAY_LABELS: Record<CanonicalStatus, string> = {
+  queued: "Queued",
+  processing: "Processing",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  user_cancelled: "User cancelled",
+  other: "Other",
+};
+
+const statusLabel = (status: CanonicalStatus | string) => {
+  const canonical =
+    typeof status === "string"
+      ? STATUS_CANONICAL_MAP[status] ?? (status as CanonicalStatus)
+      : status;
+  if (typeof canonical === "string" && STATUS_DISPLAY_LABELS[canonical as CanonicalStatus]) {
+    return STATUS_DISPLAY_LABELS[canonical as CanonicalStatus];
+  }
+  return String(status)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
 
 const getTimelineBucket = (iso: string) => {
   const timestamp = Date.parse(iso);
@@ -151,19 +203,22 @@ const deriveLastUpdate = (job: AdminJob) =>
 const enrichJobs = (jobs: AdminJob[]): EnrichedJob[] =>
   jobs.map((job) => {
     const normalizedStatus = job.status.toLowerCase();
+    const canonicalStatus =
+      STATUS_CANONICAL_MAP[normalizedStatus] ?? "other";
     const providerKey = (job.provider ?? "unknown").toLowerCase();
     const lastUpdateISO = deriveLastUpdate(job);
     const lastUpdateTimestamp = Date.parse(lastUpdateISO);
     const minutesSinceUpdate = Number.isNaN(lastUpdateTimestamp)
       ? Number.POSITIVE_INFINITY
       : (Date.now() - lastUpdateTimestamp) / 1000 / 60;
-    const isActive = ACTIVE_STATUSES.has(normalizedStatus);
+    const isActive = ACTIVE_CANONICAL_STATUSES.has(canonicalStatus);
     const isStuck =
       isActive && minutesSinceUpdate >= STUCK_THRESHOLD_MINUTES;
 
     return {
       ...job,
       normalizedStatus,
+      canonicalStatus,
       providerKey,
       lastUpdateISO,
       minutesSinceUpdate,
@@ -182,7 +237,7 @@ export function AdminJobsDashboard({
   const [selectedProviders, setSelectedProviders] = useState<string[] | null>(
     null,
   );
-  const [selectedStatuses, setSelectedStatuses] = useState<string[] | null>(
+  const [selectedStatuses, setSelectedStatuses] = useState<CanonicalStatus[] | null>(
     null,
   );
 
@@ -196,8 +251,12 @@ export function AdminJobsDashboard({
   }, [enrichedJobs]);
 
   const statusOptions = useMemo(() => {
-    const unique = new Set(enrichedJobs.map((job) => job.normalizedStatus));
-    return Array.from(unique);
+    const unique = new Set<CanonicalStatus>(
+      enrichedJobs.map((job) => job.canonicalStatus),
+    );
+    return Array.from(unique).sort(
+      (a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b),
+    );
   }, [enrichedJobs]);
 
   const activeProviderFilters = selectedProviders ?? providerOptions;
@@ -208,7 +267,7 @@ export function AdminJobsDashboard({
       enrichedJobs.filter(
         (job) =>
           activeProviderFilters.includes(job.providerKey) &&
-          activeStatusFilters.includes(job.normalizedStatus),
+          activeStatusFilters.includes(job.canonicalStatus),
       ),
     [enrichedJobs, activeProviderFilters, activeStatusFilters],
   );
@@ -216,45 +275,38 @@ export function AdminJobsDashboard({
   const totalJobs = filteredJobs.length;
   const activeJobs = filteredJobs.filter((job) => job.isActive).length;
   const completedJobs = filteredJobs.filter((job) =>
-    COMPLETED_STATUSES.has(job.normalizedStatus),
+    COMPLETED_CANONICAL_STATUSES.has(job.canonicalStatus),
   ).length;
   const stuckJobs = filteredJobs.filter((job) => job.isStuck);
 
   const statusDatasetOrder = useMemo(() => {
-    const preferred = [
-      "completed",
-      "processing",
-      "queued",
-      "queueing",
-      "failed",
-      "cancelled",
-      "cancelled_user",
-    ];
-    const remaining = activeStatusFilters.filter(
-      (status) => !preferred.includes(status),
+    const activeSet = new Set<CanonicalStatus>(
+      activeStatusFilters as CanonicalStatus[],
     );
-    return Array.from(new Set([...preferred, ...remaining]));
+    const ordered = STATUS_ORDER.filter((status) => activeSet.has(status));
+    const remaining = (activeStatusFilters as CanonicalStatus[]).filter(
+      (status) => !STATUS_ORDER.includes(status),
+    );
+    return [...ordered, ...remaining];
   }, [activeStatusFilters]);
 
   const statusByProviderData = useMemo(() => {
-    const providerCounts = new Map<string, Map<string, number>>();
+    const providerCounts = new Map<string, Map<CanonicalStatus, number>>();
 
     filteredJobs.forEach((job) => {
       if (!providerCounts.has(job.providerKey)) {
         providerCounts.set(job.providerKey, new Map());
       }
       const statusMap = providerCounts.get(job.providerKey)!;
-      statusMap.set(
-        job.normalizedStatus,
-        (statusMap.get(job.normalizedStatus) ?? 0) + 1,
-      );
+      const key = job.canonicalStatus;
+      statusMap.set(key, (statusMap.get(key) ?? 0) + 1);
     });
 
     const labels = activeProviderFilters.map((provider) =>
       providerLabel(provider),
     );
 
-    const datasets = statusDatasetOrder.map((status) => {
+    const datasets = statusDatasetOrder.map((status: CanonicalStatus) => {
       const background =
         STATUS_COLORS[status] ?? "rgba(148, 163, 184, 0.6)";
       return {
@@ -333,7 +385,7 @@ export function AdminJobsDashboard({
     });
   };
 
-  const toggleStatus = (status: string) => {
+  const toggleStatus = (status: CanonicalStatus) => {
     setSelectedStatuses((prev) => {
       const current = prev ?? statusOptions;
       if (current.includes(status) && current.length === 1) {
@@ -455,7 +507,7 @@ export function AdminJobsDashboard({
               label="Statuses"
               options={statusOptions}
               activeOptions={activeStatusFilters}
-              onToggle={toggleStatus}
+              onToggle={(value) => toggleStatus(value as CanonicalStatus)}
               formatter={statusLabel}
               baseColor="bg-secondary"
             />
@@ -588,15 +640,15 @@ export function AdminJobsDashboard({
                         className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
                         style={{
                           backgroundColor: `${(
-                            STATUS_COLORS[job.normalizedStatus] ??
+                            STATUS_COLORS[job.canonicalStatus] ??
                             "rgba(148, 163, 184, 0.2)"
                           )}33`,
                           color:
-                            STATUS_COLORS[job.normalizedStatus] ??
+                            STATUS_COLORS[job.canonicalStatus] ??
                             "#f9fafb",
                         }}
                       >
-                        {statusLabel(job.normalizedStatus)}
+                        {statusLabel(job.canonicalStatus)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -666,7 +718,7 @@ export function AdminJobsDashboard({
                     <span>•</span>
                     <span>{providerLabel(job.providerKey)}</span>
                     <span>•</span>
-                    <span>{statusLabel(job.normalizedStatus)}</span>
+                    <span>{statusLabel(job.canonicalStatus)}</span>
                   </div>
                   <div className="mt-2 text-rose-100/70">
                     Last update {formatRelativeTime(job.lastUpdateISO)} |

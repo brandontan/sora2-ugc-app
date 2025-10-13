@@ -15,6 +15,39 @@ st.set_page_config(
 )
 
 
+STATUS_CANONICAL_MAP = {
+    "queued": "queued",
+    "queueing": "queued",
+    "processing": "processing",
+    "pending": "processing",
+    "submitted": "processing",
+    "in_progress": "processing",
+    "started": "processing",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "cancelled_user": "user_cancelled",
+    "policy_blocked": "failed",
+}
+
+STATUS_DISPLAY_LABELS = {
+    "queued": "Queued",
+    "processing": "Processing",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "user_cancelled": "User Cancelled",
+    "other": "Other",
+}
+
+
+def canonicalize_status(value: Optional[str]) -> str:
+    if not value:
+        return "other"
+    normalized = value.lower()
+    return STATUS_CANONICAL_MAP.get(normalized, "other")
+
+
 def sanitize_env(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -63,6 +96,15 @@ def fetch_jobs(limit: int) -> pd.DataFrame:
             frame[column] = pd.to_datetime(
                 frame[column], utc=True, errors="coerce"
             )
+    if "status" in frame.columns:
+        frame["canonical_status"] = frame["status"].apply(
+            lambda value: canonicalize_status(value if isinstance(value, str) else str(value) if value is not None else None)
+        )
+    else:
+        frame["canonical_status"] = "other"
+    frame["status_display"] = frame["canonical_status"].map(
+        lambda value: STATUS_DISPLAY_LABELS.get(value, "Other")
+    )
     return frame
 
 
@@ -121,7 +163,7 @@ with st.sidebar:
         fetch_jobs.clear()
         st.experimental_rerun()
 
-    default_statuses = ["queued", "queueing", "processing", "completed", "failed"]
+    default_statuses = ["queued", "processing", "completed", "failed"]
 
 jobs_limit = st.selectbox(
     "History window",
@@ -148,12 +190,12 @@ jobs_df["minutes_since_update"] = (
     (now_utc - jobs_df["last_touched_at"]).dt.total_seconds() / 60.0
 )
 
-active_mask = jobs_df["status"].isin(["queued", "queueing", "processing"])
+active_mask = jobs_df["canonical_status"].isin(["queued", "processing"])
 stuck_mask = active_mask & (jobs_df["minutes_since_update"] >= 10)
 jobs_df["is_stuck"] = stuck_mask
 
 providers = sorted(jobs_df["provider"].dropna().unique().tolist())
-statuses = sorted(jobs_df["status"].dropna().unique().tolist())
+statuses = sorted(jobs_df["canonical_status"].dropna().unique().tolist())
 
 selected_providers = st.multiselect(
     "Filter providers",
@@ -164,22 +206,25 @@ selected_statuses = st.multiselect(
     "Filter statuses",
     options=statuses,
     default=[status for status in statuses if status in default_statuses] or statuses,
+    format_func=lambda value: STATUS_DISPLAY_LABELS.get(value, value.title()),
 )
 
 filtered_df = jobs_df[
     jobs_df["provider"].isin(selected_providers)
-    & jobs_df["status"].isin(selected_statuses)
+    & jobs_df["canonical_status"].isin(selected_statuses)
 ].copy()
 
 summary_cols = st.columns(4)
 summary_cols[0].metric("Total jobs", len(filtered_df))
 summary_cols[1].metric(
     "Active in queue",
-    int((filtered_df["status"].isin(["queued", "queueing", "processing"])).sum()),
+    int(
+        (filtered_df["canonical_status"].isin(["queued", "processing"])).sum()
+    ),
 )
 summary_cols[2].metric(
     "Completed",
-    int((filtered_df["status"] == "completed").sum()),
+    int((filtered_df["canonical_status"] == "completed").sum()),
 )
 summary_cols[3].metric(
     "Flagged as stuck",
@@ -192,16 +237,18 @@ with chart_container:
     left, right = st.columns([2, 3])
 
     status_counts = (
-        filtered_df.groupby(["provider", "status"])
+        filtered_df.groupby(["provider", "canonical_status"])
         .size()
         .reset_index(name="count")
     )
-
+    status_counts["status_display"] = status_counts["canonical_status"].map(
+        lambda value: STATUS_DISPLAY_LABELS.get(value, value.title())
+    )
     status_chart = (
         alt.Chart(status_counts)
         .mark_bar()
         .encode(
-            x=alt.X("status:N", title="Status"),
+            x=alt.X("status_display:N", title="Status"),
             y=alt.Y("count:Q", title="Jobs"),
             color=alt.Color("provider:N", title="Provider"),
             column=alt.Column("provider:N", title="Provider"),
@@ -238,7 +285,7 @@ st.subheader("Job details")
 display_columns = [
     "id",
     "user_id",
-    "status",
+    "status_display",
     "provider",
     "provider_status",
     "queue_position",
@@ -252,6 +299,8 @@ display_columns = [
 present_columns = [column for column in display_columns if column in filtered_df.columns]
 table_df = filtered_df[present_columns].copy()
 table_df["minutes_since_update"] = table_df["minutes_since_update"].round(1)
+if "status_display" in table_df.columns:
+    table_df = table_df.rename(columns={"status_display": "Status"})
 
 styled_df = table_df.style.apply(
     lambda row: [
@@ -276,7 +325,7 @@ if stuck_jobs.empty:
 else:
     for _, row in stuck_jobs.iterrows():
         st.warning(
-            f"Job {row['id']} ({row['provider']}) stuck at status {row['status']} "
+            f"Job {row['id']} ({row['provider']}) stuck at status {row.get('status_display') or row.get('status')} "
             f"for {row['minutes_since_update']:.1f} minutes. Provider status: "
             f"{row.get('provider_status') or 'n/a'}",
             icon="🛑",

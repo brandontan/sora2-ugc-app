@@ -6,13 +6,16 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import {
+  CheckCircle2,
   Download,
   Eye,
   Loader2,
   MinusCircle,
+  RotateCcw,
   Sparkles,
   Trash2,
-  CheckCircle2,
+  X,
+  XCircle,
 } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
@@ -119,25 +122,56 @@ const DEFAULT_PROVIDER: ProviderKey = "wavespeed";
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
   PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
 
-const FINAL_JOB_STATUSES = new Set([
+type CanonicalStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "user_cancelled"
+  | "other";
+
+const STATUS_CANONICAL_MAP: Record<string, CanonicalStatus> = {
+  queued: "queued",
+  queueing: "queued",
+  processing: "processing",
+  pending: "processing",
+  submitted: "processing",
+  in_progress: "processing",
+  started: "processing",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+  cancelled_user: "user_cancelled",
+  policy_blocked: "failed",
+};
+
+const STATUS_DISPLAY_LABELS: Record<CanonicalStatus, string> = {
+  queued: "Queued",
+  processing: "Processing",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  user_cancelled: "User Cancelled",
+  other: "Other",
+};
+
+const FINAL_JOB_STATUSES = new Set<CanonicalStatus>([
   "completed",
   "failed",
   "cancelled",
-  "cancelled_user",
-  "policy_blocked",
+  "user_cancelled",
 ]);
 
-const ACTIVE_JOB_STATUSES = new Set([
+const ACTIVE_JOB_STATUSES = new Set<CanonicalStatus>([
   "processing",
   "queued",
-  "queueing",
-  "pending",
-  "submitted",
-  "in_progress",
-  "started",
 ]);
 
-const normalizeStatus = (status: string) => status.toLowerCase();
+const normalizeStatus = (status: string): CanonicalStatus => {
+  const normalized = status.toLowerCase();
+  return STATUS_CANONICAL_MAP[normalized] ?? "other";
+};
 const isFinalStatus = (status: string) => FINAL_JOB_STATUSES.has(normalizeStatus(status));
 const isActiveStatus = (status: string) => ACTIVE_JOB_STATUSES.has(normalizeStatus(status));
 const isTrayStatus = (status: string) =>
@@ -327,11 +361,14 @@ export default function Dashboard() {
   }, [trayJobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
+  const featuredCanonicalStatus = featuredJob
+    ? normalizeStatus(featuredJob.status)
+    : null;
   const isFeaturedFinal = featuredJob ? isFinalStatus(featuredJob.status) : false;
-  const featuredVideoStatus = featuredJob
-    ? isFeaturedFinal && normalizeStatus(featuredJob.status) !== "completed"
+  const featuredVideoStatus = featuredCanonicalStatus
+    ? isFeaturedFinal && featuredCanonicalStatus !== "completed"
       ? null
-      : featuredJob.status
+      : STATUS_DISPLAY_LABELS[featuredCanonicalStatus]
     : null;
   const isFeaturedCancellable = featuredJob ? !isFinalStatus(featuredJob.status) : false;
   const isFeaturedCancelling = featuredJob
@@ -872,7 +909,7 @@ export default function Dashboard() {
                   </div>
                   {featuredVideoStatus ? (
                     <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground backdrop-blur">
-                      {featuredVideoStatus.replace(/_/g, " ")}
+                      {featuredVideoStatus}
                     </div>
                   ) : null}
                 </div>
@@ -930,11 +967,15 @@ export default function Dashboard() {
                   <div className="mt-3 flex flex-wrap gap-3">
                     {jobTrayItems.map((job) => {
                       const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
-                      const normalizedStatus = normalizeStatus(job.status);
-                      const isCompleted = normalizedStatus === "completed";
+                      const canonicalStatus = normalizeStatus(job.status);
+                      const isCompleted = canonicalStatus === "completed";
                       const jobFinal = isFinalStatus(job.status);
+                      const isFailed = canonicalStatus === "failed";
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
+                      const statusLabel =
+                        STATUS_DISPLAY_LABELS[canonicalStatus] ??
+                        job.status.replace(/_/g, " ");
                       const cardWidthClass = "sm:w-72";
                       const cardBorderClass = isFocused
                         ? "border-primary/60 shadow-primary/20"
@@ -964,14 +1005,16 @@ export default function Dashboard() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             {(() => {
-                              const variant =
-                                normalizedStatus === "completed"
+                              const variant: "success" | "processing" | "error" | "muted" =
+                                canonicalStatus === "completed"
                                   ? "success"
-                                  : isActiveStatus(job.status)
+                                  : canonicalStatus === "processing" || canonicalStatus === "queued"
                                     ? "processing"
-                                    : "muted";
+                                    : canonicalStatus === "failed"
+                                      ? "error"
+                                      : "muted";
                               const variantStyles: Record<
-                                "success" | "processing" | "muted",
+                                "success" | "processing" | "error" | "muted",
                                 { bg: string; text: string; icon: ElementType }
                               > = {
                                 success: {
@@ -983,6 +1026,11 @@ export default function Dashboard() {
                                   bg: "bg-amber-500/20",
                                   text: "text-amber-300",
                                   icon: Loader2,
+                                },
+                                error: {
+                                  bg: "bg-rose-500/20",
+                                  text: "text-rose-200",
+                                  icon: XCircle,
                                 },
                                 muted: {
                                   bg: "bg-border/40",
@@ -999,7 +1047,7 @@ export default function Dashboard() {
                                   <StatusIcon
                                     className={`h-3 w-3 ${variant === "processing" ? "animate-spin" : ""}`}
                                   />
-                                  {job.status.replace(/_/g, " ")}
+                                  {statusLabel}
                                 </span>
                               );
                             })()}
@@ -1015,7 +1063,7 @@ export default function Dashboard() {
                               <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
                             ) : null}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 pt-2">
+                          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                             {isCompleted && job.video_url ? (
                               <>
                                 <button
@@ -1024,13 +1072,11 @@ export default function Dashboard() {
                                     event.stopPropagation();
                                     handlePreview();
                                   }}
-                                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[0.65rem] font-semibold transition ${
-                                    isFocused
-                                      ? "border-primary/60 bg-primary/15 text-primary"
-                                      : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                                  className={`inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium transition hover:border-border hover:text-foreground ${
+                                    isFocused ? "text-primary" : "text-muted-foreground"
                                   }`}
                                 >
-                                  <Eye className="h-3 w-3" />
+                                  <Eye className="h-4 w-4" />
                                   {isFocused ? "Viewing" : "Preview"}
                                 </button>
                                 <a
@@ -1038,10 +1084,10 @@ export default function Dashboard() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(event) => event.stopPropagation()}
-                                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                                  aria-label="Download video"
+                                  className="inline-flex items-center justify-center rounded-full border border-border/70 bg-background/60 p-2 text-muted-foreground transition hover:border-border hover:text-foreground"
                                 >
-                                  <Download className="h-3 w-3" />
-                                  Download
+                                  <Download className="h-4 w-4" />
                                 </a>
                                 <button
                                   type="button"
@@ -1049,22 +1095,39 @@ export default function Dashboard() {
                                     event.stopPropagation();
                                     handleClearJob();
                                   }}
-                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  aria-label="Dismiss job"
+                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
                                 >
-                                  Remove
+                                  <Trash2 className="h-4 w-4" />
+                                  Dismiss
                                 </button>
                               </>
                             ) : null}
-                            {!isCompleted && jobFinal ? (
+                            {isFailed ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPrompt(job.prompt ?? "");
+                                  setFocusedJobId(job.id);
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                Retry
+                              </button>
+                            ) : null}
+                            {jobFinal && !isCompleted ? (
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleClearJob();
                                 }}
-                                className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
                               >
-                                Remove
+                                <Trash2 className="h-4 w-4" />
+                                Dismiss
                               </button>
                             ) : null}
                             {!jobFinal ? (
@@ -1075,16 +1138,16 @@ export default function Dashboard() {
                                   handleCancelJob(job.id);
                                 }}
                                 disabled={jobCancelling}
-                                className="inline-flex items-center gap-2 rounded-full border border-border/70 px-3 py-1 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {jobCancelling ? (
                                   <>
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                    Cancelling…
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Cancelling
                                   </>
                                 ) : (
                                   <>
-                                    <Trash2 className="h-3 w-3" />
+                                    <X className="h-4 w-4" />
                                     Cancel
                                   </>
                                 )}
