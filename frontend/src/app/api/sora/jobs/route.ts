@@ -177,6 +177,11 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser(token);
 
   if (userError || !user) {
+    console.error("[sora-job] user lookup failed", {
+      hasError: Boolean(userError),
+      errorMessage:
+        userError instanceof Error ? userError.message : String(userError),
+    });
     return NextResponse.json(
       { error: { message: "Unauthorized" } },
       { status: 401 },
