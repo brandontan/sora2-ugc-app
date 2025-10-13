@@ -141,7 +141,7 @@ const normalizeStatus = (status: string) => status.toLowerCase();
 const isFinalStatus = (status: string) => FINAL_JOB_STATUSES.has(normalizeStatus(status));
 const isActiveStatus = (status: string) => ACTIVE_JOB_STATUSES.has(normalizeStatus(status));
 const isTrayStatus = (status: string) =>
-  normalizeStatus(status) === "completed" || isActiveStatus(status);
+  isActiveStatus(status) || isFinalStatus(status);
 
 const formatRelativeTime = (iso: string | null | undefined): string => {
   if (!iso) return "just now";
