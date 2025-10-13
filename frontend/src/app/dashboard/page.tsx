@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ElementType } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { Download, Eye, Loader2, Sparkles, Trash2 } from "lucide-react";
+import {
+  Download,
+  Eye,
+  Loader2,
+  MinusCircle,
+  Sparkles,
+  Trash2,
+  CheckCircle2,
+} from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
 import { getPricingSummary } from "@/lib/pricing";
@@ -924,15 +932,14 @@ export default function Dashboard() {
                       const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
                       const normalizedStatus = normalizeStatus(job.status);
                       const isCompleted = normalizedStatus === "completed";
-                      const statusLabel = job.status.replace(/_/g, " ");
                       const jobFinal = isFinalStatus(job.status);
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
                       const cardWidthClass = "sm:w-72";
                       const cardBorderClass = isFocused
-                        ? "border-primary/70 shadow-primary/20"
+                        ? "border-primary/60 shadow-primary/20"
                         : "border-border/70";
-                      const cardBgClass = "bg-secondary/40";
+                      const cardBgClass = "bg-secondary/40 hover:bg-secondary/50 transition";
 
                       const handlePreview = () => {
                         setFocusedJobId(job.id);
@@ -952,71 +959,121 @@ export default function Dashboard() {
                       return (
                         <div
                           key={job.id}
-                          className={`flex w-full flex-col gap-3 rounded-2xl border ${cardBgClass} ${cardBorderClass} ${cardWidthClass} p-4 text-left shadow-sm transition-all duration-300`}
+                          onClick={() => setFocusedJobId(job.id)}
+                          className={`flex w-full cursor-pointer flex-col gap-3 rounded-2xl border ${cardBgClass} ${cardBorderClass} ${cardWidthClass} p-4 text-left shadow-sm`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span
-                              className={`inline-flex items-center gap-2 rounded-full px-4 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.3em] ${
-                                isCompleted
-                                  ? "bg-emerald-500/15 text-emerald-200"
-                                  : jobFinal
-                                    ? "bg-border/40 text-muted-foreground"
-                                  : normalizedStatus === "processing"
-                                    ? "bg-primary/15 text-primary"
-                                    : "bg-border/40 text-muted-foreground"
-                              }`}
-                            >
-                              {statusLabel}
+                            {(() => {
+                              const variant =
+                                normalizedStatus === "completed"
+                                  ? "success"
+                                  : isActiveStatus(job.status)
+                                    ? "processing"
+                                    : "muted";
+                              const variantStyles: Record<
+                                "success" | "processing" | "muted",
+                                { bg: string; text: string; icon: ElementType }
+                              > = {
+                                success: {
+                                  bg: "bg-emerald-500/20",
+                                  text: "text-emerald-300",
+                                  icon: CheckCircle2,
+                                },
+                                processing: {
+                                  bg: "bg-amber-500/20",
+                                  text: "text-amber-300",
+                                  icon: Loader2,
+                                },
+                                muted: {
+                                  bg: "bg-border/40",
+                                  text: "text-muted-foreground",
+                                  icon: MinusCircle,
+                                },
+                              };
+                              const styles = variantStyles[variant];
+                              const StatusIcon = styles.icon;
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[0.65rem] font-medium uppercase tracking-[0.2em] ${styles.bg} ${styles.text}`}
+                                >
+                                  <StatusIcon
+                                    className={`h-3 w-3 ${variant === "processing" ? "animate-spin" : ""}`}
+                                  />
+                                  {job.status.replace(/_/g, " ")}
+                                </span>
+                              );
+                            })()}
+                            <span className="text-xs text-muted-foreground">
+                              {formatRelativeTime(job.created_at)}
                             </span>
                           </div>
                           <div className="space-y-1">
-                            <p className="text-xs font-semibold text-foreground line-clamp-2">
+                            <p className="text-sm font-semibold text-foreground line-clamp-2">
                               {job.prompt}
-                            </p>
-                            <p className="text-[0.65rem] text-muted-foreground">
-                              {formatRelativeTime(job.created_at)}
                             </p>
                             {jobProviderSummary ? (
                               <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
                             ) : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 pt-2">
-                            <button
-                              type="button"
-                              onClick={handlePreview}
-                              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[0.65rem] font-semibold transition ${
-                                isFocused
-                                  ? "border-primary/60 bg-primary/15 text-primary"
-                                  : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              <Eye className="h-3 w-3" />
-                              {isFocused ? "Viewing" : "Open preview"}
-                            </button>
                             {isCompleted && job.video_url ? (
-                              <a
-                                href={job.video_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
-                              >
-                                <Download className="h-3 w-3" />
-                                Download
-                              </a>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handlePreview();
+                                  }}
+                                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[0.65rem] font-semibold transition ${
+                                    isFocused
+                                      ? "border-primary/60 bg-primary/15 text-primary"
+                                      : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                                  }`}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  {isFocused ? "Viewing" : "Preview"}
+                                </button>
+                                <a
+                                  href={job.video_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  Download
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleClearJob();
+                                  }}
+                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                                >
+                                  Remove
+                                </button>
+                              </>
                             ) : null}
-                            {jobFinal ? (
+                            {!isCompleted && jobFinal ? (
                               <button
                                 type="button"
-                                onClick={handleClearJob}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleClearJob();
+                                }}
                                 className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
                               >
-                                Remove from tray
+                                Remove
                               </button>
                             ) : null}
                             {!jobFinal ? (
                               <button
                                 type="button"
-                                onClick={() => handleCancelJob(job.id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCancelJob(job.id);
+                                }}
                                 disabled={jobCancelling}
                                 className="inline-flex items-center gap-2 rounded-full border border-border/70 px-3 py-1 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                               >
