@@ -5,15 +5,7 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Eye,
-  Loader2,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { Download, Eye, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useSupabase } from "@/components/providers/supabase-provider";
 import { dicebearUrl } from "@/lib/profile";
 import { getPricingSummary } from "@/lib/pricing";
@@ -217,7 +209,6 @@ export default function Dashboard() {
   const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
     undefined,
   );
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -235,7 +226,6 @@ export default function Dashboard() {
     setMessageTone("neutral");
     setIsSubmitting(false);
     setCancellingJobIds({});
-    setExpandedJobId(null);
     setDismissedJobIds(new Set());
     const uploadInput = document.getElementById(
       "product-file",
@@ -303,12 +293,6 @@ export default function Dashboard() {
       setFocusedJobId(undefined);
     }
   }, [focusedJobId, jobs]);
-
-  useEffect(() => {
-    if (expandedJobId && !trayJobs.some((job) => job.id === expandedJobId)) {
-      setExpandedJobId(null);
-    }
-  }, [expandedJobId, trayJobs]);
 
   useEffect(() => {
     if (focusedJobId !== undefined) return;
@@ -883,13 +867,38 @@ export default function Dashboard() {
                       {featuredVideoStatus.replace(/_/g, " ")}
                     </div>
                   ) : null}
-                  {isFeaturedCancellable ? (
-                    <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2">
+                </div>
+              </div>
+
+              {featuredJob ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-secondary/40 px-4 py-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                      Background job
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Move this run to the tray while you set up the next generation.
+                    </span>
+                    {isFeaturedCancellable ? (
+                      <span className="text-[0.65rem] text-muted-foreground">
+                        Cancelling now keeps credits for this run.
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFocusedJobId(null)}
+                      className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                    >
+                      Send to tray
+                    </button>
+                    {isFeaturedCancellable ? (
                       <button
                         type="button"
                         onClick={() => featuredJob && handleCancelJob(featuredJob.id)}
                         disabled={isFeaturedCancelling}
-                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isFeaturedCancelling ? (
                           <>
@@ -897,30 +906,13 @@ export default function Dashboard() {
                             Cancelling…
                           </>
                         ) : (
-                          "Cancel job"
+                          "Cancel run"
                         )}
                       </button>
-                      <span className="rounded-full bg-background/70 px-3 py-1 text-[0.65rem] text-muted-foreground">
-                        Cancelling now keeps credits for this run.
-                      </span>
-                    </div>
-                  ) : null}
-                  {featuredJob ? (
-                    <div className="absolute bottom-4 left-4 flex flex-col items-start gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFocusedJobId(null)}
-                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-                      >
-                        Background job
-                      </button>
-                      <span className="rounded-full bg-background/70 px-3 py-1 text-[0.65rem] text-muted-foreground">
-                        Sends this run to the tray so you can set up another.
-                      </span>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {jobTrayItems.length > 0 ? (
                 <div className="mt-6">
@@ -936,20 +928,13 @@ export default function Dashboard() {
                       const jobFinal = isFinalStatus(job.status);
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
-                      const isExpanded = isCompleted && expandedJobId === job.id;
-                      const cardWidthClass = isExpanded ? "sm:w-96" : "sm:w-52";
+                      const cardWidthClass = "sm:w-72";
                       const cardBorderClass = isFocused
                         ? "border-primary/70 shadow-primary/20"
                         : "border-border/70";
-                      const cardBgClass = isExpanded ? "bg-secondary/50" : "bg-secondary/40";
+                      const cardBgClass = "bg-secondary/40";
 
                       const handlePreview = () => {
-                        setFocusedJobId(job.id);
-                      };
-
-                      const toggleExpanded = () => {
-                        if (!isCompleted) return;
-                        setExpandedJobId((prev) => (prev === job.id ? null : job.id));
                         setFocusedJobId(job.id);
                       };
 
@@ -959,9 +944,6 @@ export default function Dashboard() {
                           next.add(job.id);
                           return next;
                         });
-                        if (expandedJobId === job.id) {
-                          setExpandedJobId(null);
-                        }
                         if (focusedJobId === job.id) {
                           setFocusedJobId(null);
                         }
@@ -979,41 +961,13 @@ export default function Dashboard() {
                                   ? "bg-emerald-500/15 text-emerald-200"
                                   : jobFinal
                                     ? "bg-border/40 text-muted-foreground"
-                                    : normalizedStatus === "processing"
-                                      ? "bg-primary/15 text-primary"
-                                      : "bg-border/40 text-muted-foreground"
+                                  : normalizedStatus === "processing"
+                                    ? "bg-primary/15 text-primary"
+                                    : "bg-border/40 text-muted-foreground"
                               }`}
                             >
                               {statusLabel}
                             </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={handlePreview}
-                                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[0.65rem] font-semibold transition ${
-                                  isFocused
-                                    ? "border-primary/60 bg-primary/15 text-primary"
-                                    : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
-                                }`}
-                              >
-                                <Eye className="h-3 w-3" />
-                                {isFocused ? "Previewing" : "Preview"}
-                              </button>
-                              {isCompleted && job.video_url ? (
-                                <button
-                                  type="button"
-                                  onClick={toggleExpanded}
-                                  aria-expanded={isExpanded}
-                                  className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/40 p-1 text-muted-foreground transition hover:border-border hover:text-foreground"
-                                >
-                                  {isExpanded ? (
-                                    <ChevronUp className="h-3 w-3" />
-                                  ) : (
-                                    <ChevronDown className="h-3 w-3" />
-                                  )}
-                                </button>
-                              ) : null}
-                            </div>
                           </div>
                           <div className="space-y-1">
                             <p className="text-xs font-semibold text-foreground line-clamp-2">
@@ -1026,37 +980,38 @@ export default function Dashboard() {
                               <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
                             ) : null}
                           </div>
-                          {isExpanded && isCompleted && job.video_url ? (
-                            <div className="overflow-hidden rounded-xl border border-border/60 bg-background/40">
-                              <video
-                                src={job.video_url}
-                                controls
-                                playsInline
-                                preload="metadata"
-                                className="h-48 w-full object-cover"
-                              />
-                            </div>
-                          ) : null}
                           <div className="flex flex-wrap items-center gap-2 pt-2">
+                            <button
+                              type="button"
+                              onClick={handlePreview}
+                              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[0.65rem] font-semibold transition ${
+                                isFocused
+                                  ? "border-primary/60 bg-primary/15 text-primary"
+                                  : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground"
+                              }`}
+                            >
+                              <Eye className="h-3 w-3" />
+                              {isFocused ? "Viewing" : "Open preview"}
+                            </button>
                             {isCompleted && job.video_url ? (
-                              <>
-                                <a
-                                  href={job.video_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
-                                >
-                                  <Download className="h-3 w-3" />
-                                  Download
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={handleClearJob}
-                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 px-3 py-1 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-                                >
-                                  Clear
-                                </button>
-                              </>
+                              <a
+                                href={job.video_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[0.65rem] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                              >
+                                <Download className="h-3 w-3" />
+                                Download
+                              </a>
+                            ) : null}
+                            {jobFinal ? (
+                              <button
+                                type="button"
+                                onClick={handleClearJob}
+                                className="inline-flex items-center gap-2 rounded-full border border-border/70 px-4 py-2 text-[0.65rem] font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                              >
+                                Remove from tray
+                              </button>
                             ) : null}
                             {!jobFinal ? (
                               <button
