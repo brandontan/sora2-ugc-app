@@ -7,7 +7,10 @@ const paramsSchema = z.object({
   id: z.string().uuid("Invalid job id."),
 });
 
-const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
+const rawWaveSpeedKey = process.env.WAVESPEED_API_KEY;
+const WAVESPEED_API_KEY = rawWaveSpeedKey
+  ? rawWaveSpeedKey.replace(/^"|"$/g, "")
+  : rawWaveSpeedKey;
 
 export const runtime = "nodejs";
 

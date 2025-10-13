@@ -42,7 +42,10 @@ const WAVESPEED_ENDPOINT =
 const WAVESPEED_PRO_ENDPOINT =
   process.env.WAVESPEED_SORA_PRO_ENDPOINT ??
   "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video-pro";
-const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
+const rawWaveSpeedKey = process.env.WAVESPEED_API_KEY;
+const WAVESPEED_API_KEY = rawWaveSpeedKey
+  ? rawWaveSpeedKey.replace(/^"|"$/g, "")
+  : rawWaveSpeedKey;
 
 async function ensureSignedUrl(
   supabase: ReturnType<typeof getServiceClient>,
