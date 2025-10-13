@@ -1,5 +1,3 @@
-"use server";
-
 import { Metadata } from "next";
 import { unstable_noStore as noStore } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/service-client";
