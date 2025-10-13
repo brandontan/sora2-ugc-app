@@ -97,17 +97,6 @@ const PROVIDER_CONFIG = {
   },
 } as const;
 
-function getProviderLabel(provider: string | null | undefined) {
-  const key = (provider ?? "fal").toLowerCase();
-  switch (key) {
-    case "wavespeed":
-      return PROVIDER_CONFIG.wavespeed.label;
-    case "fal":
-    default:
-      return PROVIDER_CONFIG.fal.label;
-  }
-}
-
 const MODEL_OPTIONS = [
   {
     value: "sora2",
@@ -182,27 +171,25 @@ const describeProviderState = (job: Job | null): string | null => {
     typeof job.provider_error === "string" && job.provider_error.trim().length > 0
       ? job.provider_error.trim()
       : null;
-  const providerLabel = getProviderLabel(job.provider);
-  const prefix = providerLabel ? `${providerLabel}: ` : "";
 
   switch (status) {
     case "IN_QUEUE":
       if (queuePosition !== null) {
-        return `${prefix}In queue · position ${queuePosition} (checked ${checked})`;
+        return `In queue · position ${queuePosition} (checked ${checked})`;
       }
-      return `${prefix}In queue (checked ${checked})`;
+      return `In queue (checked ${checked})`;
     case "IN_PROGRESS":
-      return `${prefix}Rendering with provider (checked ${checked})`;
+      return `Rendering (checked ${checked})`;
     case "COMPLETED":
-      return `${prefix}Provider finished (checked ${checked})`;
+      return `Completed (checked ${checked})`;
     case "FAILED":
       return providerError
-        ? `${prefix}Provider failed: ${providerError} (checked ${checked})`
-        : `${prefix}Provider reported a failure (checked ${checked})`;
+        ? `Failed: ${providerError} (checked ${checked})`
+        : `Failed (checked ${checked})`;
     case "CANCELLATION_REQUESTED":
-      return `${prefix}Cancellation requested at provider (checked ${checked})`;
+      return `Cancellation requested (checked ${checked})`;
     default:
-      return `${prefix}Provider status: ${job.provider_status} (checked ${checked})`;
+      return `Status: ${job.provider_status} (checked ${checked})`;
   }
 };
 
@@ -704,9 +691,8 @@ export default function Dashboard() {
           : parsed.providerStatus
             ? ` Provider ${parsed.providerStatus}.`
             : "";
-    const providerSummary = getProviderLabel(provider);
     setMessage(
-      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} Provider: ${providerSummary}. We'll email when ready.`,
+      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} We'll email when ready.`,
     );
     setPrompt("");
     setFile(null);
@@ -1036,9 +1022,6 @@ export default function Dashboard() {
                             <p className="text-[0.65rem] text-muted-foreground">
                               {formatRelativeTime(job.created_at)}
                             </p>
-                            <p className="text-[0.65rem] text-muted-foreground">
-                              Provider: {getProviderLabel(job.provider)}
-                            </p>
                             {jobProviderSummary ? (
                               <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
                             ) : null}
@@ -1203,20 +1186,6 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-6">
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                        Provider
-                      </p>
-                      <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/40 px-4 py-3">
-                        <span className="text-sm font-semibold text-foreground">
-                          {PROVIDER_CONFIG.wavespeed.label}
-                        </span>
-                        <p className="text-xs text-muted-foreground">
-                          {providerConfig.helper}
-                        </p>
-                      </div>
-                    </div>
-
                     <div className="space-y-2">
                       <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
                         Model
