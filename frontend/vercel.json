@@ -3,8 +3,7 @@
   "crons": [
     {
       "path": "/api/sora/poller",
-      "schedule": "0 0 * * *",
-      "method": "GET"
+      "schedule": "0 0 * * *"
     }
   ]
 }
