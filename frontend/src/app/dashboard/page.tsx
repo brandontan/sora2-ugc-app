@@ -79,10 +79,7 @@ const PROVIDER_CONFIG = {
     durations: FAL_DURATION_OPTIONS as readonly number[],
     aspectRatios: ["16:9", "9:16"] as const,
     resolutions: ["auto", "720p", "1080p"] as const,
-    slug: (model: "sora2" | "sora2-pro") =>
-      model === "sora2-pro"
-        ? "fal.ai/sora-2-pro/image-to-video"
-        : "fal.ai/sora-2/image-to-video",
+    slug: () => "fal.ai/sora-2/image-to-video",
   },
   wavespeed: {
     value: "wavespeed" as const,
@@ -102,13 +99,8 @@ const PROVIDER_CONFIG = {
 const MODEL_OPTIONS = [
   {
     value: "sora2",
-    label: "Sora2",
-    helper: "Balanced quality with faster queue times.",
-  },
-  {
-    value: "sora2-pro",
-    label: "Sora2 Pro",
-    helper: "Sharper detail; allow extra render time.",
+    label: "Sora",
+    helper: "Balanced quality with fast turnaround.",
   },
 ] as const;
 
@@ -275,17 +267,14 @@ export default function Dashboard() {
   }, []);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
-  const creditCostPerRunStandard = pricingSummary.creditCostPerRun;
-  const creditCostPerRunPro = pricingSummary.creditCostPerRunPro;
-  const currentRunCreditCost =
-    model === "sora2-pro" ? creditCostPerRunPro : creditCostPerRunStandard;
+  const creditCostPerRun = pricingSummary.creditCostPerRun;
   const packLabel = `${pricingSummary.creditsPerPack} credits`;
-  const perRunLabel = `${currentRunCreditCost} credits/run`;
+  const perRunLabel = `${creditCostPerRun} credits/run`;
 
   const isLowBalance = useMemo(() => {
     if (balance === null) return false;
-    return balance < currentRunCreditCost;
-  }, [balance, currentRunCreditCost]);
+    return balance < creditCostPerRun;
+  }, [balance, creditCostPerRun]);
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -295,7 +284,7 @@ export default function Dashboard() {
 
   const selectedModelLabel = useMemo(() => {
     const match = MODEL_OPTIONS.find((item) => item.value === model);
-    return match?.label ?? "Sora2";
+    return match?.label ?? "Sora";
   }, [model]);
 
   useEffect(() => {
@@ -477,7 +466,7 @@ export default function Dashboard() {
       credit_cost:
         typeof job.credit_cost === "number"
           ? job.credit_cost
-          : Number(job.credit_cost ?? creditCostPerRunStandard),
+          : Number(job.credit_cost ?? creditCostPerRun),
       provider:
         typeof job.provider === "string"
           ? job.provider
@@ -525,7 +514,7 @@ export default function Dashboard() {
 
     console.log("[dashboard] upgradedJobs", upgraded);
     setJobs(upgraded);
-  }, [authFetch, creditCostPerRunStandard, session?.user?.id, supabase]);
+  }, [authFetch, creditCostPerRun, session?.user?.id, supabase]);
 
   const handleCancelJob = useCallback(
     async (jobId: string) => {
@@ -665,7 +654,7 @@ export default function Dashboard() {
     }
     if (!prompt.trim()) {
       setMessageTone("error");
-      setMessage("Add a short prompt so Sora2 knows the style.");
+      setMessage("Add a short prompt so Sora knows the style.");
       return;
     }
 
@@ -830,7 +819,7 @@ export default function Dashboard() {
               </p>
               {isLowBalance ? (
                 <p className="mt-1 text-xs text-amber-300">
-                  Balance below {currentRunCreditCost} credits. Add credits before launching the next job.
+                  Balance below {creditCostPerRun} credits. Add credits before launching the next job.
                 </p>
               ) : null}
             </div>
@@ -864,7 +853,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                    Sora2 pipeline
+                    Sora pipeline
                   </p>
                   <h2 className="text-2xl font-semibold text-foreground">Launch a generation</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -1294,7 +1283,7 @@ export default function Dashboard() {
                         })}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Sora2 uses {creditCostPerRunStandard} credits/run. Sora2 Pro uses {creditCostPerRunPro} credits/run.
+                        Each Sora run consumes {creditCostPerRun} credits.
                       </p>
                     </div>
 

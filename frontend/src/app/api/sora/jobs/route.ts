@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/service-client";
 import { pushLedger, upsertJob, sumLedgerForUser } from "@/lib/mock-store";
 
-const ModelSchema = z.enum(["sora2", "sora2-pro"]);
+const ModelSchema = z.enum(["sora2"]);
 const ProviderSchema = z.enum(["fal", "wavespeed", "openai"]);
 type ProviderValue = z.infer<typeof ProviderSchema>;
 const AspectRatioSchema = z.enum(["16:9", "9:16"]);
@@ -23,15 +23,11 @@ const requestSchema = z.object({
 });
 
 const CREDIT_COST_STANDARD = Number(process.env.SORA_CREDIT_COST ?? 5);
-const CREDIT_COST_PRO = Number(process.env.SORA_CREDIT_COST_PRO ?? 7);
 const FAL_MODEL =
   process.env.FAL_SORA_MODEL_ID ?? "fal-ai/sora-2/image-to-video";
-const FAL_MODEL_PRO =
-  process.env.FAL_SORA_PRO_MODEL_ID ?? "fal-ai/sora-2-pro/image-to-video";
 type ModelValue = z.infer<typeof ModelSchema>;
 const MODEL_TO_ID: Record<ModelValue, string> = {
   sora2: FAL_MODEL,
-  "sora2-pro": FAL_MODEL_PRO,
 };
 const FAL_DURATION_SECONDS = Number(
   process.env.FAL_VIDEO_DURATION_SECONDS ?? 20,
@@ -40,9 +36,6 @@ const FAL_DURATION_SECONDS = Number(
 const WAVESPEED_ENDPOINT =
   process.env.WAVESPEED_SORA_ENDPOINT ??
   "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video";
-const WAVESPEED_PRO_ENDPOINT =
-  process.env.WAVESPEED_SORA_PRO_ENDPOINT ??
-  "https://api.wavespeed.ai/api/v3/openai/sora-2/image-to-video-pro";
 const rawWaveSpeedKey = process.env.WAVESPEED_API_KEY;
 const WAVESPEED_API_KEY = rawWaveSpeedKey
   ? rawWaveSpeedKey.replace(/^"|"$/g, "")
@@ -101,8 +94,7 @@ export async function POST(request: NextRequest) {
   const modelKey: ModelValue = requestedModel ?? "sora2";
   const selectedModelId = MODEL_TO_ID[modelKey] ?? MODEL_TO_ID["sora2"];
   const aspectRatio = requestedAspectRatio ?? "16:9";
-  const creditCost =
-    modelKey === "sora2-pro" ? CREDIT_COST_PRO : CREDIT_COST_STANDARD;
+  const creditCost = CREDIT_COST_STANDARD;
   console.log("[sora-job] incoming", {
     userToken: token.slice(0, 16),
     durationSeconds,
@@ -336,7 +328,6 @@ export async function POST(request: NextRequest) {
       assetPath,
       selectedDuration,
       provider,
-      modelKey,
     });
   }
 
@@ -514,7 +505,6 @@ type LaunchWaveSpeedParams = {
   assetPath: string;
   selectedDuration: number;
   provider: ProviderValue;
-  modelKey: ModelValue;
 };
 
 async function launchWaveSpeedJob({
@@ -525,7 +515,6 @@ async function launchWaveSpeedJob({
   assetPath,
   selectedDuration,
   provider,
-  modelKey,
 }: LaunchWaveSpeedParams) {
   if (!WAVESPEED_API_KEY) {
     const message =
@@ -543,9 +532,7 @@ async function launchWaveSpeedJob({
 
   try {
     const signedUrl = await ensureSignedUrl(supabase, assetPath);
-    const endpoint =
-      modelKey === "sora2-pro" ? WAVESPEED_PRO_ENDPOINT : WAVESPEED_ENDPOINT;
-    const response = await fetch(endpoint, {
+    const response = await fetch(WAVESPEED_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
