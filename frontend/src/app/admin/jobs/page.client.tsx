@@ -267,7 +267,7 @@ export function AdminJobsDashboard({
   }, [filteredJobs]);
 
   const totalJobs = filteredJobs.length;
-  const statusCounts = useMemo(() => {
+  const summaryCounts = useMemo(() => {
     const counts: Record<CanonicalStatus, number> = {
       queued: 0,
       processing: 0,
@@ -277,26 +277,18 @@ export function AdminJobsDashboard({
       user_cancelled: 0,
       other: 0,
     };
-    filteredJobs.forEach((job) => {
+    enrichedJobs.forEach((job) => {
       counts[job.canonicalStatus] = (counts[job.canonicalStatus] ?? 0) + 1;
     });
     return counts;
-  }, [filteredJobs]);
-  const stuckJobs = filteredJobs.filter((job) => job.isStuck);
-  const queuedJobs = statusCounts.queued;
-  const processingJobs = statusCounts.processing;
-  const completedJobs = statusCounts.completed;
-  const failedJobs = statusCounts.failed;
-  const cancelledJobs = statusCounts.cancelled + statusCounts.user_cancelled;
-  const otherJobs = Math.max(
-    totalJobs -
-      (queuedJobs +
-        processingJobs +
-        completedJobs +
-        failedJobs +
-        cancelledJobs),
-    0,
-  );
+  }, [enrichedJobs]);
+  const stuckJobsOverall = enrichedJobs.filter((job) => job.isStuck);
+  const queuedJobsTotal = summaryCounts.queued;
+  const processingJobsTotal = summaryCounts.processing;
+  const completedJobsTotal = summaryCounts.completed;
+  const failedJobsTotal = summaryCounts.failed;
+  const cancelledJobsTotal = summaryCounts.cancelled + summaryCounts.user_cancelled;
+  const otherJobsTotal = summaryCounts.other;
 
   const statusDatasetOrder = useMemo(() => {
     const activeSet = new Set<CanonicalStatus>(activeStatusFilters);
@@ -485,46 +477,46 @@ export function AdminJobsDashboard({
           />
           <MetricCard
             title="Queued"
-            value={formatNumber(queuedJobs)}
+            value={formatNumber(queuedJobsTotal)}
             tone="info"
             description="Waiting on provider"
           />
           <MetricCard
             title="Processing"
-            value={formatNumber(processingJobs)}
+            value={formatNumber(processingJobsTotal)}
             tone="info"
             description="In progress at provider"
           />
           <MetricCard
             title="Completed"
-            value={formatNumber(completedJobs)}
+            value={formatNumber(completedJobsTotal)}
             tone="success"
             description="Marked as finished"
           />
           <MetricCard
             title="Failed"
-            value={formatNumber(failedJobs)}
-            tone={failedJobs > 0 ? "alert" : "muted"}
+            value={formatNumber(failedJobsTotal)}
+            tone={failedJobsTotal > 0 ? "alert" : "muted"}
             description="Provider errors"
           />
           <MetricCard
             title="Cancelled"
-            value={formatNumber(cancelledJobs)}
+            value={formatNumber(cancelledJobsTotal)}
             tone="muted"
             description="System/user cancelled"
           />
-          {otherJobs > 0 ? (
+          {otherJobsTotal > 0 ? (
             <MetricCard
               title="Other"
-              value={formatNumber(otherJobs)}
+              value={formatNumber(otherJobsTotal)}
               tone="muted"
               description="Legacy or unknown"
             />
           ) : null}
           <MetricCard
             title="Stuck"
-            value={formatNumber(stuckJobs.length)}
-            tone={stuckJobs.length > 0 ? "alert" : "muted"}
+            value={formatNumber(stuckJobsOverall.length)}
+            tone={stuckJobsOverall.length > 0 ? "alert" : "muted"}
             description="Active jobs > 10 minutes without update"
           />
         </section>
@@ -744,13 +736,13 @@ export function AdminJobsDashboard({
             Active jobs without updates for {STUCK_THRESHOLD_MINUTES}+
             minutes.
           </p>
-          {stuckJobs.length === 0 ? (
+          {stuckJobsOverall.length === 0 ? (
             <p className="mt-4 rounded-2xl bg-secondary/60 px-6 py-4 text-sm text-emerald-300/90">
               No stuck jobs detected in the current window.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {stuckJobs.map((job) => (
+              {stuckJobsOverall.map((job) => (
                 <li
                   key={`stuck-${job.id}`}
                   className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100/90"
