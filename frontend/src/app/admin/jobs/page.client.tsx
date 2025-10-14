@@ -535,7 +535,7 @@ export function AdminJobsDashboard({
             title="Stuck"
             value={formatNumber(stuckJobsFiltered.length)}
             tone={stuckJobsFiltered.length > 0 ? "alert" : "muted"}
-            description="Active jobs > 10 minutes without update"
+            description={`No update for ${STUCK_THRESHOLD_MINUTES}+ minutes`}
           />
         </section>
 
