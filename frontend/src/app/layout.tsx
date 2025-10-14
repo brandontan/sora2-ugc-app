@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "GenVids Fast | Sora2 UGC",
-  description: "Upload a product, describe the vibe, get a Sora2 ad in minutes.",
+  title: "GenVids Fast | Sora UGC",
+  description: "Upload a product, describe the vibe, get a Sora video in minutes.",
 };
 
 export default function RootLayout({

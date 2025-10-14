@@ -113,7 +113,7 @@ export default function Home() {
       <main className="relative z-[3] container mx-auto flex flex-col items-center px-4 pb-24 pt-20">
         <div className="max-w-4xl text-center">
           <span className="inline-flex items-center justify-center gap-2 rounded-full border border-border/60 bg-background/70 px-4 py-2 text-xs uppercase tracking-[0.35em] text-muted-foreground">
-            Ultra-fast Sora2 UGC
+            Ultra-fast Sora UGC
           </span>
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
             Create UGC Video Ads <span className="gradient-text">that actually Sells</span>
