@@ -532,6 +532,15 @@ export function AdminJobsDashboard({
               baseColor="bg-secondary"
             />
           </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-xs font-medium text-accent-foreground transition hover:border-accent hover:text-white"
+            >
+              Clear all filters
+            </button>
+          </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
