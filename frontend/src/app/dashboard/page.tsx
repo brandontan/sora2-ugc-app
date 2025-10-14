@@ -106,6 +106,7 @@ const MODEL_OPTIONS = [
 
 type AspectRatioOption = "16:9" | "9:16" | "1:1";
 type ProviderKey = keyof typeof PROVIDER_CONFIG;
+const PROVIDER_ORDER: readonly ProviderKey[] = ["wavespeed", "fal"];
 
 const MAX_PROMPT_LENGTH = 2000;
 
@@ -226,6 +227,7 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [provider, setProvider] = useState<ProviderKey>(DEFAULT_PROVIDER);
   const [aspectRatio, setAspectRatio] =
     useState<AspectRatioOption>(DEFAULT_ASPECT_RATIO);
   const [duration, setDuration] = useState<number>(
@@ -245,15 +247,13 @@ export default function Dashboard() {
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const provider: ProviderKey = DEFAULT_PROVIDER;
-
   const resetFormState = useCallback(() => {
     console.log("[dashboard] resetFormState invoked");
     setPrompt("");
     setFile(null);
     setProductPreviewUrl(null);
-    setDuration(PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0]);
-    setAspectRatio(PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0]);
+    setDuration(PROVIDER_CONFIG[provider].durations[0]);
+    setAspectRatio(PROVIDER_CONFIG[provider].aspectRatios[0]);
     setModel(MODEL_OPTIONS[0].value);
     setMessage(null);
     setMessageTone("neutral");
@@ -264,7 +264,7 @@ export default function Dashboard() {
       "product-file",
     ) as HTMLInputElement | null;
     if (uploadInput) uploadInput.value = "";
-  }, []);
+  }, [provider]);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
   const creditCostPerRun = pricingSummary.creditCostPerRun;
@@ -300,6 +300,11 @@ export default function Dashboard() {
       setDuration(allowedDurations[0]);
     }
   }, [providerConfig, duration]);
+
+  useEffect(() => {
+    setDuration(PROVIDER_CONFIG[provider].durations[0]);
+    setAspectRatio(PROVIDER_CONFIG[provider].aspectRatios[0]);
+  }, [provider]);
 
   useEffect(() => {
     if (!file) {
@@ -1254,12 +1259,42 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                        Model
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                      Provider
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {PROVIDER_ORDER.map((key) => {
+                        const option = PROVIDER_CONFIG[key];
+                        const isActive = provider === key;
+                        return (
+                          <button
+                            type="button"
+                            key={option.value}
+                            onClick={() => setProvider(key)}
+                            aria-pressed={isActive}
+                            className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                              isActive
+                                ? "border-primary/70 bg-primary/15 text-primary"
+                                : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
+                            }`}
+                          >
+                            <span>{option.label}</span>
+                            <span className="text-[10px] font-normal text-muted-foreground">
+                              {option.helper}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                      Model
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
                         {MODEL_OPTIONS.map((option) => {
                           const isActive = model === option.value;
                           return (
