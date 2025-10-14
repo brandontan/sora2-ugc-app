@@ -13,7 +13,7 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { RefreshCcw, ChevronRight } from "lucide-react";
+import { RefreshCcw, ChevronRight, Check } from "lucide-react";
 
 const Bar = dynamic(
   () => import("react-chartjs-2").then((mod) => mod.Bar),
@@ -101,10 +101,6 @@ const STATUS_CANONICAL_MAP: Record<string, CanonicalStatus> = {
 const ACTIVE_CANONICAL_STATUSES = new Set<CanonicalStatus>([
   "processing",
   "queued",
-]);
-
-const COMPLETED_CANONICAL_STATUSES = new Set<CanonicalStatus>([
-  "completed",
 ]);
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -271,18 +267,36 @@ export function AdminJobsDashboard({
   }, [filteredJobs]);
 
   const totalJobs = filteredJobs.length;
-  const queuedJobs = filteredJobs.filter(
-    (job) => job.canonicalStatus === "queued",
-  ).length;
-  const processingJobs = filteredJobs.filter(
-    (job) => job.canonicalStatus === "processing",
-  ).length;
-  const completedJobs = filteredJobs.filter((job) =>
-    COMPLETED_CANONICAL_STATUSES.has(job.canonicalStatus),
-  ).length;
+  const statusCounts = useMemo(() => {
+    const counts: Record<CanonicalStatus, number> = {
+      queued: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      user_cancelled: 0,
+      other: 0,
+    };
+    filteredJobs.forEach((job) => {
+      counts[job.canonicalStatus] = (counts[job.canonicalStatus] ?? 0) + 1;
+    });
+    return counts;
+  }, [filteredJobs]);
   const stuckJobs = filteredJobs.filter((job) => job.isStuck);
-  const statusSum = queuedJobs + processingJobs + completedJobs;
-  const mismatchedCount = Math.max(totalJobs - statusSum, 0);
+  const queuedJobs = statusCounts.queued;
+  const processingJobs = statusCounts.processing;
+  const completedJobs = statusCounts.completed;
+  const failedJobs = statusCounts.failed;
+  const cancelledJobs = statusCounts.cancelled + statusCounts.user_cancelled;
+  const otherJobs = Math.max(
+    totalJobs -
+      (queuedJobs +
+        processingJobs +
+        completedJobs +
+        failedJobs +
+        cancelledJobs),
+    0,
+  );
 
   const statusDatasetOrder = useMemo(() => {
     const activeSet = new Set<CanonicalStatus>(activeStatusFilters);
@@ -389,9 +403,10 @@ export function AdminJobsDashboard({
         return [provider];
       }
       if (current.includes(provider)) {
-        return current.length === 1
-          ? current
-          : current.filter((item) => item !== provider);
+        if (current.length === 1) {
+          return providerOptions;
+        }
+        return current.filter((item) => item !== provider);
       }
       return [...current, provider];
     });
@@ -405,9 +420,10 @@ export function AdminJobsDashboard({
         return [status];
       }
       if (current.includes(status)) {
-        return current.length === 1
-          ? current
-          : current.filter((item) => item !== status);
+        if (current.length === 1) {
+          return statusOptions;
+        }
+        return current.filter((item) => item !== status);
       }
       return [...current, status];
     });
@@ -460,21 +476,13 @@ export function AdminJobsDashboard({
           </div>
         </header>
 
-        <section className={`grid gap-4 md:grid-cols-2 lg:grid-cols-${mismatchedCount > 0 ? 6 : 5}`}>
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-6 xl:grid-cols-7">
           <MetricCard
             title="Jobs in view"
             value={formatNumber(totalJobs)}
             tone="primary"
             description="Filtered records"
           />
-          {mismatchedCount > 0 ? (
-            <MetricCard
-              title="Unclassified"
-              value={formatNumber(mismatchedCount)}
-              tone="muted"
-              description="Jobs outside standard statuses"
-            />
-          ) : null}
           <MetricCard
             title="Queued"
             value={formatNumber(queuedJobs)}
@@ -493,6 +501,26 @@ export function AdminJobsDashboard({
             tone="success"
             description="Marked as finished"
           />
+          <MetricCard
+            title="Failed"
+            value={formatNumber(failedJobs)}
+            tone={failedJobs > 0 ? "alert" : "muted"}
+            description="Provider errors"
+          />
+          <MetricCard
+            title="Cancelled"
+            value={formatNumber(cancelledJobs)}
+            tone="muted"
+            description="System/user cancelled"
+          />
+          {otherJobs > 0 ? (
+            <MetricCard
+              title="Other"
+              value={formatNumber(otherJobs)}
+              tone="muted"
+              description="Legacy or unknown"
+            />
+          ) : null}
           <MetricCard
             title="Stuck"
             value={formatNumber(stuckJobs.length)}
@@ -825,8 +853,14 @@ function FilterGroup({
               key={`${label}-${option}`}
               type="button"
               onClick={() => onToggle(option)}
-              className={`group inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium transition ${isActive ? "border-accent bg-accent/20 text-white shadow-lg" : `${baseColor} border-border/40 text-muted-foreground hover:border-accent/60 hover:text-white`}`}
+              aria-pressed={isActive}
+              className={`group inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                isActive
+                  ? "border-primary bg-primary/20 text-white shadow-lg shadow-primary/20"
+                  : `${baseColor} border-border/40 text-muted-foreground opacity-70 hover:opacity-100 hover:border-primary/50 hover:text-white`
+              }`}
             >
+              {isActive ? <Check className="h-3.5 w-3.5" /> : null}
               <span>{formatter(option)}</span>
             </button>
           );
