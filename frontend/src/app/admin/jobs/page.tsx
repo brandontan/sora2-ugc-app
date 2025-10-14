@@ -1,5 +1,8 @@
 import { Metadata } from "next";
 import { unstable_noStore as noStore } from "next/cache";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { createServerClient } from "@supabase/ssr";
 import { getServiceClient } from "@/lib/supabase/service-client";
 import { AdminJobsDashboard } from "./page.client";
 
@@ -23,9 +26,51 @@ export const metadata: Metadata = {
 };
 
 const DEFAULT_LIMIT = 200;
+const ALLOWED_EMAILS = (process.env.ADMIN_ALLOWED_EMAILS ?? "brandontan@gmail.com")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter((value) => value.length > 0);
 
 export default async function AdminJobsPage() {
   noStore();
+
+  const cookieStore = await cookies();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error(
+      "Supabase credentials missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
+  }
+
+  const authClient = createServerClient(supabaseUrl, anonKey, {
+    cookies: {
+      get(name) {
+        return cookieStore.get(name)?.value;
+      },
+      set() {
+        return undefined;
+      },
+      remove() {
+        return undefined;
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error: authError,
+  } = await authClient.auth.getUser();
+
+  if (authError || !user?.email) {
+    redirect("/");
+  }
+
+  const normalizedEmail = user.email.toLowerCase();
+  if (!ALLOWED_EMAILS.includes(normalizedEmail)) {
+    redirect("/");
+  }
 
   const supabase = getServiceClient();
   const { data, error } = await supabase
