@@ -58,6 +58,8 @@ type CanonicalStatus =
   | "user_cancelled"
   | "other";
 
+type StatusFilter = CanonicalStatus | "stuck";
+
 type EnrichedJob = AdminJob & {
   normalizedStatus: string;
   canonicalStatus: CanonicalStatus;
@@ -125,7 +127,7 @@ const PROVIDER_COLORS: Record<string, string> = {
 };
 
 const BUCKET_INTERVAL_MINUTES = 15;
-const STUCK_THRESHOLD_MINUTES = 10;
+const STUCK_THRESHOLD_MINUTES = 15;
 
 const pluralize = (value: number, unit: string) =>
   `${value} ${unit}${value === 1 ? "" : "s"}`;
@@ -156,7 +158,7 @@ const formatBucketLabel = (timestamp: number) => {
 const providerLabel = (provider: string) =>
   PROVIDER_LABELS[provider] ?? provider.toUpperCase();
 
-const STATUS_DISPLAY_LABELS: Record<CanonicalStatus, string> = {
+const STATUS_DISPLAY_LABELS: Record<StatusFilter, string> = {
   queued: "Queued",
   processing: "Processing",
   completed: "Completed",
@@ -164,9 +166,11 @@ const STATUS_DISPLAY_LABELS: Record<CanonicalStatus, string> = {
   cancelled: "Cancelled",
   user_cancelled: "User Cancelled",
   other: "Other",
+  stuck: "Stuck",
 };
 
-const statusLabel = (status: CanonicalStatus | string) => {
+const statusLabel = (status: StatusFilter | string) => {
+  if (status === "stuck") return STATUS_DISPLAY_LABELS.stuck;
   const canonical =
     typeof status === "string"
       ? STATUS_CANONICAL_MAP[status] ?? (status as CanonicalStatus)
@@ -232,7 +236,7 @@ export function AdminJobsDashboard({
   const [selectedProviders, setSelectedProviders] = useState<string[] | null>(
     null,
   );
-  const [selectedStatuses, setSelectedStatuses] = useState<CanonicalStatus[] | null>(
+  const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[] | null>(
     null,
   );
 
@@ -245,7 +249,10 @@ export function AdminJobsDashboard({
     return Array.from(unique);
   }, [enrichedJobs]);
 
-  const statusOptions = useMemo(() => STATUS_ORDER, []);
+  const statusOptions = useMemo<StatusFilter[]>(
+    () => ["stuck", ...STATUS_ORDER],
+    [],
+  );
 
   const activeProviderFilters = selectedProviders ?? providerOptions;
   const activeStatusFilters = selectedStatuses ?? statusOptions;
@@ -253,9 +260,11 @@ export function AdminJobsDashboard({
   const filteredJobs = useMemo(
     () =>
       enrichedJobs.filter(
-        (job) =>
-          activeProviderFilters.includes(job.providerKey) &&
-          activeStatusFilters.includes(job.canonicalStatus),
+        (job) => {
+          if (!activeProviderFilters.includes(job.providerKey)) return false;
+          if (activeStatusFilters.includes("stuck") && job.isStuck) return true;
+          return activeStatusFilters.includes(job.canonicalStatus);
+        },
       ),
     [enrichedJobs, activeProviderFilters, activeStatusFilters],
   );
@@ -291,7 +300,11 @@ export function AdminJobsDashboard({
   const otherJobsTotal = summaryCounts.other;
 
   const statusDatasetOrder = useMemo(() => {
-    const activeSet = new Set<CanonicalStatus>(activeStatusFilters);
+    const activeSet = new Set<CanonicalStatus>(
+      activeStatusFilters.filter(
+        (status): status is CanonicalStatus => status !== "stuck",
+      ),
+    );
     const filteredActive = Array.from(activeSet).filter((status) =>
       availableStatuses.has(status),
     );
@@ -404,7 +417,7 @@ export function AdminJobsDashboard({
     });
   };
 
-  const toggleStatus = (status: CanonicalStatus) => {
+  const toggleStatus = (status: StatusFilter) => {
     setSelectedStatuses((prev) => {
       const current = prev ?? statusOptions;
       const isAllSelected = current.length === statusOptions.length;
@@ -557,7 +570,7 @@ export function AdminJobsDashboard({
               label="Statuses"
               options={statusOptions}
               activeOptions={activeStatusFilters}
-              onToggle={(value) => toggleStatus(value as CanonicalStatus)}
+              onToggle={(value) => toggleStatus(value as StatusFilter)}
               formatter={statusLabel}
               baseColor="bg-secondary"
             />
