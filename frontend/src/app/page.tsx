@@ -99,10 +99,21 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (!loading && session) {
+    if (!loading && session && !isAdmin) {
       router.replace("/dashboard");
     }
-  }, [loading, session, router]);
+  }, [loading, session, isAdmin, router]);
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setEmail("");
+    setOtp("");
+    setPhase("email");
+    setStatus("idle");
+    setOtpStatus("idle");
+    setMessage("");
+  };
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -118,32 +129,86 @@ export default function Home() {
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
             Create UGC Video Ads <span className="gradient-text">that actually Sells</span>
           </h1>
-          {session && isAdmin ? (
-            <div className="mt-6 flex justify-center">
-              <button
-                type="button"
-                onClick={() => router.push("/admin/jobs")}
-                className="inline-flex items-center gap-2 rounded-full border border-primary/40 px-5 py-2 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/10 hover:text-white"
-              >
-                Admin Jobs
-              </button>
-            </div>
-          ) : null}
         </div>
 
         <div className="relative mt-16 w-full max-w-xl">
           <div className="absolute -inset-[2px] rounded-[30px] bg-gradient-to-br from-primary/50 via-indigo-500/30 to-fuchsia-500/20 blur-[70px]" />
           <div className="relative glass-surface rounded-[28px] p-8 text-left shadow-2xl">
-            <h2 className="text-2xl font-semibold">Sign in instantly</h2>
-            {phase === "email" && (
-              <form
-                ref={formRef}
-                onSubmit={handleMagicLink}
-                className="mt-6 space-y-4"
-                data-testid="email-auth-form"
-              >
-                <label className="block text-sm text-muted-foreground">
-                  Email address
+            {session ? (
+              <div className="space-y-6 text-sm text-muted-foreground">
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Welcome back</h2>
+                  <p className="mt-2">
+                    Signed in as <span className="font-medium text-primary">{session.user.email}</span>.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard")}
+                    className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                  >
+                    Go to dashboard
+                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push("/admin/jobs")}
+                      className="w-full rounded-2xl border border-primary/50 px-4 py-3 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/10 hover:text-white"
+                    >
+                      Open admin jobs
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-2xl font-semibold">Sign in instantly</h2>
+                {phase === "email" && (
+                  <form
+                    ref={formRef}
+                    onSubmit={handleMagicLink}
+                    className="mt-6 space-y-4"
+                    data-testid="email-auth-form"
+                  >
+                    <label className="block text-sm text-muted-foreground">
+                      Email address
+                      <input
+                        id="magic-link-email"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="you@brand.com"
+                        className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
+                        autoComplete="email"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                      disabled={status === "sending"}
+                    >
+                      {status === "sending" ? "Sending magic link…" : "Email me a link"}
+                    </button>
+                  </form>
+                )}
+                {phase === "otp" && (
+                  <form
+                    ref={formRef}
+                    onSubmit={handleMagicLink}
+                    className="mt-6 space-y-4"
+                    data-testid="email-auth-form"
+                  >
+                    <label className="block text-sm text-muted-foreground">
+                      Email address
                   <input
                     id="magic-link-email"
                     type="email"
@@ -161,65 +226,67 @@ export default function Home() {
                   disabled={status === "sending"}
                 >
                   {status === "sending" ? "Sending magic link…" : "Email me a link"}
-                </button>
-              </form>
-            )}
-            {phase === "otp" && (
-              <form
-                ref={otpFormRef}
-                onSubmit={handleVerifyOtp}
-                className="mt-6 space-y-4"
-                data-testid="otp-auth-form"
-              >
-                <label className="block text-sm text-muted-foreground">
-                  Enter the 6-digit code
-                  <input
-                    id="magic-link-otp"
-                    ref={otpInputRef}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    value={otp}
-                    onChange={(event) => setOtp(event.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="000000"
-                    className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground tracking-[0.4em] outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
-                    data-testid="otp-input"
-                  />
-                </label>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="submit"
-                    className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                    disabled={otpStatus === "verifying"}
-                  >
-                    {otpStatus === "verifying" ? "Verifying code…" : "Finish sign in"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhase("email");
-                      setStatus("idle");
-                      setOtpStatus("idle");
-                      setOtp("");
-                      setMessage("");
-                      setTimeout(() => formRef.current?.querySelector<HTMLInputElement>("input")?.focus(), 0);
-                    }}
-                    className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                </form>
+              )}
+                {phase === "otp" && (
+                  <form
+                    ref={otpFormRef}
+                    onSubmit={handleVerifyOtp}
+                    className="mt-6 space-y-4"
+                    data-testid="otp-auth-form"
                   >
-                    Resend link
-                  </button>
-                </div>
-              </form>
-            )}
-            {message && (
-              <p
-                className={`mt-4 text-sm ${
-                  status === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
-                }`}
-              >
-                {message}
-              </p>
+                    <label className="block text-sm text-muted-foreground">
+                      Enter the 6-digit code
+                      <input
+                        id="magic-link-otp"
+                        ref={otpInputRef}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{6}"
+                        maxLength={6}
+                        value={otp}
+                        onChange={(event) => setOtp(event.target.value.replace(/[^0-9]/g, ""))}
+                        placeholder="000000"
+                        className="mt-2 w-full rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground tracking-[0.4em] outline-none transition focus:border-primary/80 focus:ring-2 focus:ring-primary/40"
+                        data-testid="otp-input"
+                      />
+                    </label>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="submit"
+                        className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
+                        disabled={otpStatus === "verifying"}
+                      >
+                        {otpStatus === "verifying" ? "Verifying code…" : "Finish sign in"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPhase("email");
+                          setStatus("idle");
+                          setOtpStatus("idle");
+                          setOtp("");
+                          setMessage("");
+                          setTimeout(() => formRef.current?.querySelector<HTMLInputElement>("input")?.focus(), 0);
+                        }}
+                        className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                      >
+                        Resend link
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {message && (
+                  <p
+                    className={`mt-4 text-sm ${
+                      status === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
+                    }`}
+                  >
+                    {message}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
