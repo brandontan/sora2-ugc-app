@@ -421,6 +421,11 @@ export function AdminJobsDashboard({
     });
   };
 
+  const resetFilters = () => {
+    setSelectedProviders(null);
+    setSelectedStatuses(null);
+  };
+
   const formatNumber = (value: number) =>
     new Intl.NumberFormat().format(value);
 
@@ -522,13 +527,22 @@ export function AdminJobsDashboard({
         </section>
 
         <section className="glass-surface flex flex-col gap-6 rounded-3xl border border-border/30 p-6 shadow-2xl">
-          <div>
-            <h2 className="text-lg font-semibold text-white">
-              Filters
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Toggle providers or statuses to focus the telemetry.
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Filters
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Toggle providers or statuses to focus the telemetry.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-2 rounded-full border border-primary/40 px-4 py-2 text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/10 hover:text-white"
+            >
+              Clear filters
+            </button>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <FilterGroup
