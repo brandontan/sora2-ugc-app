@@ -214,19 +214,21 @@ filtered_df = jobs_df[
     & jobs_df["canonical_status"].isin(selected_statuses)
 ].copy()
 
-summary_cols = st.columns(4)
+summary_cols = st.columns(5)
 summary_cols[0].metric("Total jobs", len(filtered_df))
 summary_cols[1].metric(
-    "Active in queue",
-    int(
-        (filtered_df["canonical_status"].isin(["queued", "processing"])).sum()
-    ),
+    "Queued",
+    int((filtered_df["canonical_status"] == "queued").sum()),
 )
 summary_cols[2].metric(
+    "Processing",
+    int((filtered_df["canonical_status"] == "processing").sum()),
+)
+summary_cols[3].metric(
     "Completed",
     int((filtered_df["canonical_status"] == "completed").sum()),
 )
-summary_cols[3].metric(
+summary_cols[4].metric(
     "Flagged as stuck",
     int(filtered_df["is_stuck"].sum()),
 )
