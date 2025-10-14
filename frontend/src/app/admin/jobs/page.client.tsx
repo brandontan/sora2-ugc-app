@@ -279,7 +279,12 @@ export function AdminJobsDashboard({
   }, [filteredJobs]);
 
   const totalJobs = filteredJobs.length;
-  const activeJobs = filteredJobs.filter((job) => job.isActive).length;
+  const queuedJobs = filteredJobs.filter(
+    (job) => job.canonicalStatus === "queued",
+  ).length;
+  const processingJobs = filteredJobs.filter(
+    (job) => job.canonicalStatus === "processing",
+  ).length;
   const completedJobs = filteredJobs.filter((job) =>
     COMPLETED_CANONICAL_STATUSES.has(job.canonicalStatus),
   ).length;
@@ -467,7 +472,7 @@ export function AdminJobsDashboard({
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <MetricCard
             title="Jobs in view"
             value={formatNumber(totalJobs)}
@@ -475,10 +480,16 @@ export function AdminJobsDashboard({
             description="Filtered records"
           />
           <MetricCard
-            title="Active"
-            value={formatNumber(activeJobs)}
+            title="Queued"
+            value={formatNumber(queuedJobs)}
             tone="info"
-            description="Currently processing or queued"
+            description="Waiting on provider"
+          />
+          <MetricCard
+            title="Processing"
+            value={formatNumber(processingJobs)}
+            tone="info"
+            description="In progress at provider"
           />
           <MetricCard
             title="Completed"
