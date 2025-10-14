@@ -411,11 +411,6 @@ export function AdminJobsDashboard({
     });
   };
 
-  const resetFilters = () => {
-    setSelectedProviders(null);
-    setSelectedStatuses(null);
-  };
-
   const formatNumber = (value: number) =>
     new Intl.NumberFormat().format(value);
 
@@ -450,25 +445,16 @@ export function AdminJobsDashboard({
               Refresh
             </button>
           </div>
-          <div className="flex flex-col gap-4 text-sm text-muted-foreground/80 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium uppercase tracking-wider text-accent-foreground/90">
-                Generated {formatRelativeTime(generatedAt)}
-              </span>
-              <span className="rounded-full bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-wider">
-                {filteredJobs.length} shown
-              </span>
-              <span className="rounded-full bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-wider">
-                {providerOptions.length} providers
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="text-xs font-medium text-accent-foreground transition hover:text-white"
-            >
-              Reset filters
-            </button>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground/80">
+            <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium uppercase tracking-wider text-accent-foreground/90">
+              Generated {formatRelativeTime(generatedAt)}
+            </span>
+            <span className="rounded-full bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-wider">
+              {filteredJobs.length} shown
+            </span>
+            <span className="rounded-full bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-wider">
+              {providerOptions.length} providers
+            </span>
           </div>
         </header>
 
@@ -531,15 +517,6 @@ export function AdminJobsDashboard({
               formatter={statusLabel}
               baseColor="bg-secondary"
             />
-          </div>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="inline-flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-xs font-medium text-accent-foreground transition hover:border-accent hover:text-white"
-            >
-              Clear all filters
-            </button>
           </div>
         </section>
 
