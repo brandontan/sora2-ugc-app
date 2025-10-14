@@ -281,6 +281,8 @@ export function AdminJobsDashboard({
     COMPLETED_CANONICAL_STATUSES.has(job.canonicalStatus),
   ).length;
   const stuckJobs = filteredJobs.filter((job) => job.isStuck);
+  const statusSum = queuedJobs + processingJobs + completedJobs;
+  const mismatchedCount = Math.max(totalJobs - statusSum, 0);
 
   const statusDatasetOrder = useMemo(() => {
     const activeSet = new Set<CanonicalStatus>(activeStatusFilters);
@@ -458,13 +460,21 @@ export function AdminJobsDashboard({
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <section className={`grid gap-4 md:grid-cols-2 lg:grid-cols-${mismatchedCount > 0 ? 6 : 5}`}>
           <MetricCard
             title="Jobs in view"
             value={formatNumber(totalJobs)}
             tone="primary"
             description="Filtered records"
           />
+          {mismatchedCount > 0 ? (
+            <MetricCard
+              title="Unclassified"
+              value={formatNumber(mismatchedCount)}
+              tone="muted"
+              description="Jobs outside standard statuses"
+            />
+          ) : null}
           <MetricCard
             title="Queued"
             value={formatNumber(queuedJobs)}
