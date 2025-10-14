@@ -11,7 +11,6 @@ import {
   Eye,
   Loader2,
   MinusCircle,
-  RotateCcw,
   Sparkles,
   Trash2,
   X,
@@ -362,6 +361,15 @@ export default function Dashboard() {
     }
     return result;
   }, [trayJobs]);
+
+  const handleClearAllJobs = useCallback(() => {
+    setDismissedJobIds((prev) => {
+      const next = new Set(prev);
+      jobTrayItems.forEach((job) => next.add(job.id));
+      return next;
+    });
+    setFocusedJobId(null);
+  }, [jobTrayItems]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
   const featuredCanonicalStatus = featuredJob
@@ -964,16 +972,24 @@ export default function Dashboard() {
 
               {jobTrayItems.length > 0 ? (
                 <div className="mt-6">
-                  <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                    Job tray
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                      Job tray
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleClearAllJobs}
+                      className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+                    >
+                      Clear all
+                    </button>
+                  </div>
                   <div className="mt-3 flex flex-wrap gap-3">
                     {jobTrayItems.map((job) => {
                       const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
                       const canonicalStatus = normalizeStatus(job.status);
                       const isCompleted = canonicalStatus === "completed";
                       const jobFinal = isFinalStatus(job.status);
-                      const isFailed = canonicalStatus === "failed";
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
                       const statusLabel =
@@ -1105,20 +1121,6 @@ export default function Dashboard() {
                                   Dismiss
                                 </button>
                               </>
-                            ) : null}
-                            {isFailed ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setPrompt(job.prompt ?? "");
-                                  setFocusedJobId(job.id);
-                                }}
-                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
-                              >
-                                <RotateCcw className="h-4 w-4" />
-                                Retry
-                              </button>
                             ) : null}
                             {jobFinal && !isCompleted ? (
                               <button
