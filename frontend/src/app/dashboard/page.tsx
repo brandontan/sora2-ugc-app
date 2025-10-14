@@ -276,14 +276,17 @@ export default function Dashboard() {
   }, []);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
-  const creditCostPerRun = pricingSummary.creditCostPerRun;
+  const creditCostPerRunStandard = pricingSummary.creditCostPerRun;
+  const creditCostPerRunPro = pricingSummary.creditCostPerRunPro;
+  const currentRunCreditCost =
+    model === "sora2-pro" ? creditCostPerRunPro : creditCostPerRunStandard;
   const packLabel = `${pricingSummary.creditsPerPack} credits`;
-  const perRunLabel = `${creditCostPerRun} credits/run`;
+  const perRunLabel = `${currentRunCreditCost} credits/run`;
 
   const isLowBalance = useMemo(() => {
     if (balance === null) return false;
-    return balance < creditCostPerRun;
-  }, [balance, creditCostPerRun]);
+    return balance < currentRunCreditCost;
+  }, [balance, currentRunCreditCost]);
   const creatorName = profile?.display_name ?? "Creator";
   const avatarUrl = profile?.avatar_seed
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
@@ -466,7 +469,7 @@ export default function Dashboard() {
       credit_cost:
         typeof job.credit_cost === "number"
           ? job.credit_cost
-          : Number(job.credit_cost ?? creditCostPerRun),
+          : Number(job.credit_cost ?? creditCostPerRunStandard),
       provider:
         typeof job.provider === "string"
           ? job.provider
@@ -514,7 +517,7 @@ export default function Dashboard() {
 
     console.log("[dashboard] upgradedJobs", upgraded);
     setJobs(upgraded);
-  }, [authFetch, creditCostPerRun, session?.user?.id, supabase]);
+  }, [authFetch, creditCostPerRunStandard, session?.user?.id, supabase]);
 
   const handleCancelJob = useCallback(
     async (jobId: string) => {
@@ -819,7 +822,7 @@ export default function Dashboard() {
               </p>
               {isLowBalance ? (
                 <p className="mt-1 text-xs text-amber-300">
-                  Balance below {creditCostPerRun} credits. Add credits before launching the next job.
+                  Balance below {currentRunCreditCost} credits. Add credits before launching the next job.
                 </p>
               ) : null}
             </div>
@@ -1288,6 +1291,9 @@ export default function Dashboard() {
                           );
                         })}
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        Sora2 uses {creditCostPerRunStandard} credits/run. Sora2 Pro uses {creditCostPerRunPro} credits/run.
+                      </p>
                     </div>
 
                     <div className="grid gap-6 md:grid-cols-2">
