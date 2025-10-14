@@ -75,13 +75,12 @@ export type AdminJobsDashboardProps = {
 };
 
 const STATUS_ORDER: CanonicalStatus[] = [
-  "completed",
-  "processing",
   "queued",
+  "processing",
+  "completed",
   "failed",
   "cancelled",
   "user_cancelled",
-  "other",
 ];
 
 const STATUS_CANONICAL_MAP: Record<string, CanonicalStatus> = {
