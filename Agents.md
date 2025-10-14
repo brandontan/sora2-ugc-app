@@ -2,7 +2,7 @@
 
 ## Start Here
 - Memory MCP: mcp://memory/sora2-ugc-app/handoff
-- Daily handoff: HANDOFF-2025-10-13.md
+- Daily handoff: HANDOFF-2025-10-14.md
 
 ## Overview
 - Project: sora2-ugc-app — build a Supabase-backed Sora2 UGC flow with credit packs, video generation, and download delivery.
