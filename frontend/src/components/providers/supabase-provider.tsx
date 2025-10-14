@@ -19,6 +19,7 @@ type SupabaseContextValue = {
   profile: Profile | null;
   profileLoading: boolean;
   refreshProfile: () => Promise<void>;
+  isAdmin: boolean;
 };
 
 const SupabaseContext = createContext<SupabaseContextValue | undefined>(
@@ -37,6 +38,19 @@ export function SupabaseProvider({
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const allowedEmails = useMemo(
+    () =>
+      (
+        process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS ??
+        process.env.ADMIN_ALLOWED_EMAILS ??
+        "brandontan@gmail.com"
+      )
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length > 0),
+    [],
+  );
 
   const refreshProfile = useCallback(async () => {
     if (!supabase || !session?.user?.id) {
@@ -179,14 +193,18 @@ export function SupabaseProvider({
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((_event, newSession) => {
-      if (mounted) setSession(newSession);
+      if (mounted) {
+        setSession(newSession);
+        const email = newSession?.user?.email ?? null;
+        setIsAdmin(email ? allowedEmails.includes(email.toLowerCase()) : false);
+      }
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [allowedEmails]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -197,6 +215,11 @@ export function SupabaseProvider({
     }
     void refreshProfile();
   }, [supabase, session?.user?.id, refreshProfile]);
+
+  useEffect(() => {
+    const email = session?.user?.email ?? null;
+    setIsAdmin(email ? allowedEmails.includes(email.toLowerCase()) : false);
+  }, [session?.user?.email, allowedEmails]);
 
   const inactivityMinutes = useMemo(() => {
     const raw = process.env.NEXT_PUBLIC_SESSION_TIMEOUT_MINUTES;
@@ -265,8 +288,9 @@ export function SupabaseProvider({
       profile,
       profileLoading,
       refreshProfile,
+      isAdmin,
     }),
-    [supabase, session, loading, profile, profileLoading, refreshProfile],
+    [supabase, session, loading, profile, profileLoading, refreshProfile, isAdmin],
   );
 
   return (

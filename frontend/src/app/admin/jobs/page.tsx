@@ -26,7 +26,11 @@ export const metadata: Metadata = {
 };
 
 const DEFAULT_LIMIT = 200;
-const ALLOWED_EMAILS = (process.env.ADMIN_ALLOWED_EMAILS ?? "brandontan@gmail.com")
+const ALLOWED_EMAILS = (
+  process.env.ADMIN_ALLOWED_EMAILS ??
+  process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS ??
+  "brandontan@gmail.com"
+)
   .split(",")
   .map((value) => value.trim().toLowerCase())
   .filter((value) => value.length > 0);

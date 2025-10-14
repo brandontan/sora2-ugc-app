@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
@@ -74,6 +75,7 @@ export type AdminJobsDashboardProps = {
   jobs: AdminJob[];
   generatedAt: string;
   limit: number;
+  showReturnLink?: boolean;
 };
 
 const STATUS_ORDER: CanonicalStatus[] = [
@@ -230,6 +232,7 @@ export function AdminJobsDashboard({
   jobs,
   generatedAt,
   limit,
+  showReturnLink = true,
 }: AdminJobsDashboardProps) {
   const router = useRouter();
   const [isRefreshing, startTransition] = useTransition();
@@ -459,19 +462,29 @@ export function AdminJobsDashboard({
                 refreshes on load. Up to {limit} recent jobs shown.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={refresh}
-              className="inline-flex items-center gap-2 rounded-full border border-accent/50 bg-secondary px-5 py-2 text-sm font-medium text-accent-foreground transition hover:border-accent hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isRefreshing}
-            >
-              <RefreshCcw
-                className={`h-4 w-4 ${
-                  isRefreshing ? "animate-spin" : ""
-                }`}
-              />
-              Refresh
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {showReturnLink ? (
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/40 px-4 py-2 text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/10 hover:text-white"
+                >
+                  ← Back to front gate
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                onClick={refresh}
+                className="inline-flex items-center gap-2 rounded-full border border-accent/50 bg-secondary px-5 py-2 text-sm font-medium text-accent-foreground transition hover:border-accent hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={isRefreshing}
+              >
+                <RefreshCcw
+                  className={`h-4 w-4 ${
+                    isRefreshing ? "animate-spin" : ""
+                  }`}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground/80">
             <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium uppercase tracking-wider text-accent-foreground/90">

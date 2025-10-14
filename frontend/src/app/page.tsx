@@ -7,7 +7,7 @@ import { ChaoticVideoBackground } from "@/components/design/chaotic-video-backgr
 import { WelcomeHeader } from "@/components/design/welcome-header";
 
 export default function Home() {
-  const { supabase, session, loading } = useSupabase();
+  const { supabase, session, loading, isAdmin } = useSupabase();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -118,6 +118,17 @@ export default function Home() {
           <h1 className="mt-8 text-5xl font-semibold leading-tight md:text-7xl">
             Create UGC Video Ads <span className="gradient-text">that actually Sells</span>
           </h1>
+          {session && isAdmin ? (
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/jobs")}
+                className="inline-flex items-center gap-2 rounded-full border border-primary/40 px-5 py-2 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/10 hover:text-white"
+              >
+                Admin Jobs
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="relative mt-16 w-full max-w-xl">
