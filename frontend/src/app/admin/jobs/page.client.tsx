@@ -277,12 +277,12 @@ export function AdminJobsDashboard({
       user_cancelled: 0,
       other: 0,
     };
-    enrichedJobs.forEach((job) => {
+    filteredJobs.forEach((job) => {
       counts[job.canonicalStatus] = (counts[job.canonicalStatus] ?? 0) + 1;
     });
     return counts;
-  }, [enrichedJobs]);
-  const stuckJobsOverall = enrichedJobs.filter((job) => job.isStuck);
+  }, [filteredJobs]);
+  const stuckJobsFiltered = filteredJobs.filter((job) => job.isStuck);
   const queuedJobsTotal = summaryCounts.queued;
   const processingJobsTotal = summaryCounts.processing;
   const completedJobsTotal = summaryCounts.completed;
@@ -515,8 +515,8 @@ export function AdminJobsDashboard({
           ) : null}
           <MetricCard
             title="Stuck"
-            value={formatNumber(stuckJobsOverall.length)}
-            tone={stuckJobsOverall.length > 0 ? "alert" : "muted"}
+            value={formatNumber(stuckJobsFiltered.length)}
+            tone={stuckJobsFiltered.length > 0 ? "alert" : "muted"}
             description="Active jobs > 10 minutes without update"
           />
         </section>
@@ -736,13 +736,13 @@ export function AdminJobsDashboard({
             Active jobs without updates for {STUCK_THRESHOLD_MINUTES}+
             minutes.
           </p>
-          {stuckJobsOverall.length === 0 ? (
+          {stuckJobsFiltered.length === 0 ? (
             <p className="mt-4 rounded-2xl bg-secondary/60 px-6 py-4 text-sm text-emerald-300/90">
               No stuck jobs detected in the current window.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {stuckJobsOverall.map((job) => (
+              {stuckJobsFiltered.map((job) => (
                 <li
                   key={`stuck-${job.id}`}
                   className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100/90"
