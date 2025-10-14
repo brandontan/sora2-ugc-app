@@ -390,24 +390,32 @@ export function AdminJobsDashboard({
   const toggleProvider = (provider: string) => {
     setSelectedProviders((prev) => {
       const current = prev ?? providerOptions;
-      if (current.includes(provider) && current.length === 1) {
-        return current;
+      const isAllSelected = current.length === providerOptions.length;
+      if (isAllSelected) {
+        return [provider];
       }
-      return current.includes(provider)
-        ? current.filter((item) => item !== provider)
-        : [...current, provider];
+      if (current.includes(provider)) {
+        return current.length === 1
+          ? current
+          : current.filter((item) => item !== provider);
+      }
+      return [...current, provider];
     });
   };
 
   const toggleStatus = (status: CanonicalStatus) => {
     setSelectedStatuses((prev) => {
       const current = prev ?? statusOptions;
-      if (current.includes(status) && current.length === 1) {
-        return current;
+      const isAllSelected = current.length === statusOptions.length;
+      if (isAllSelected) {
+        return [status];
       }
-      return current.includes(status)
-        ? current.filter((item) => item !== status)
-        : [...current, status];
+      if (current.includes(status)) {
+        return current.length === 1
+          ? current
+          : current.filter((item) => item !== status);
+      }
+      return [...current, status];
     });
   };
 
