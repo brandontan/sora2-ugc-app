@@ -250,14 +250,7 @@ export function AdminJobsDashboard({
     return Array.from(unique);
   }, [enrichedJobs]);
 
-  const statusOptions = useMemo(() => {
-    const unique = new Set<CanonicalStatus>(
-      enrichedJobs.map((job) => job.canonicalStatus),
-    );
-    return Array.from(unique).sort(
-      (a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b),
-    );
-  }, [enrichedJobs]);
+  const statusOptions = useMemo(() => STATUS_ORDER, []);
 
   const activeProviderFilters = selectedProviders ?? providerOptions;
   const activeStatusFilters = selectedStatuses ?? statusOptions;
