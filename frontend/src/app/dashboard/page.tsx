@@ -358,12 +358,27 @@ export default function Dashboard() {
 
   const handleClearAllJobs = useCallback(() => {
     setDismissedJobIds((prev) => {
+      const removableIds = trayJobs
+        .filter((job) => isFinalStatus(job.status))
+        .map((job) => job.id);
+
+      if (removableIds.length === 0) {
+        return prev;
+      }
+
       const next = new Set(prev);
-      jobTrayItems.forEach((job) => next.add(job.id));
+      removableIds.forEach((id) => next.add(id));
       return next;
     });
-    setFocusedJobId(null);
-  }, [jobTrayItems]);
+
+    setFocusedJobId((current) => {
+      if (!current) return current;
+      const shouldClearFocus = trayJobs.some(
+        (job) => job.id === current && isFinalStatus(job.status),
+      );
+      return shouldClearFocus ? null : current;
+    });
+  }, [trayJobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
   const featuredCanonicalStatus = featuredJob
