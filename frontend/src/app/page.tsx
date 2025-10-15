@@ -10,7 +10,9 @@ export default function Home() {
   const { supabase, session, loading, isAdmin } = useSupabase();
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [linkStatus, setLinkStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [emailRequestState, setEmailRequestState] = useState<
+    "idle" | "sending" | "sent" | "error"
+  >("idle");
   const [message, setMessage] = useState("");
   const [phase, setPhase] = useState<"email" | "otp">("email");
   const [otp, setOtp] = useState("");
@@ -22,26 +24,26 @@ export default function Home() {
   const handleMagicLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email) {
-      setLinkStatus("error");
+      setEmailRequestState("error");
       setMessage("Drop an email so we can send the link.");
       return;
     }
     if (!supabase) {
-      setLinkStatus("error");
+      setEmailRequestState("error");
       setMessage("Supabase client not ready. Refresh and try again.");
       return;
     }
-    setLinkStatus("sending");
+    setEmailRequestState("sending");
     setMessage("");
     const { error } = await supabase.auth.signInWithOtp({
       email,
     });
     if (error) {
-      setLinkStatus("error");
+      setEmailRequestState("error");
       setMessage(error.message);
       return;
     }
-    setLinkStatus("sent");
+    setEmailRequestState("sent");
     setMessage("Check your inbox for the magic link. Enter the 6-digit code below to finish signing in.");
 
     if (process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === "true") {
@@ -158,9 +160,9 @@ export default function Home() {
                 <button
                   type="submit"
                   className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                  disabled={linkStatus === "sending"}
+                  disabled={emailRequestState === "sending"}
                 >
-                  {linkStatus === "sending" ? "Sending magic link…" : "Email me a link"}
+                  {emailRequestState === "sending" ? "Sending magic link…" : "Email me a link"}
                 </button>
               </form>
             )}
@@ -199,7 +201,7 @@ export default function Home() {
                     type="button"
                     onClick={() => {
                       setPhase("email");
-                      setLinkStatus("idle");
+                      setEmailRequestState("idle");
                       setOtpStatus("idle");
                       setOtp("");
                       setMessage("");
@@ -207,7 +209,7 @@ export default function Home() {
                     }}
                     className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
                   >
-                    Resend link
+                    Send new code
                   </button>
                 </div>
               </form>
@@ -215,7 +217,7 @@ export default function Home() {
             {message && (
               <p
                 className={`mt-4 text-sm ${
-                  linkStatus === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
+                  emailRequestState === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
                 }`}
               >
                 {message}
