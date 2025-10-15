@@ -88,6 +88,7 @@ async function refreshFalJob(job: JobRow) {
   const baseUrl = `https://queue.fal.run/${modelPath}/requests/${job.provider_job_id}`;
 
   const statusRes = await fetch(`${baseUrl}/status`, {
+    method: "POST",
     headers: {
       Authorization: `Key ${falKey}`,
     },
@@ -140,60 +141,34 @@ async function refreshFalJob(job: JobRow) {
     provider_last_checked: new Date().toISOString(),
   };
 
+  let derivedStatus: JobRow["status"] | null = null;
   if (!done) {
     console.log("[sora-job:get] still processing", {
       jobId: job.id,
       status: statusValue,
     });
-    const derivedStatus =
+    derivedStatus =
       statusValue === "in_queue"
         ? job.status === "processing"
           ? "processing"
           : "queued"
         : "processing";
-    return {
-      ...job,
-      status: derivedStatus,
-      ...baseUpdate,
-      provider_error: null,
-    };
   }
-
-  if (["failed", "cancelled", "canceled"].includes(statusValue)) {
-    const nextStatus = statusValue.startsWith("cancel") ? "cancelled" : "failed";
-    console.log("[sora-job:get] terminal status", {
-      jobId: job.id,
-      status: nextStatus,
-    });
-    return {
-      ...job,
-      status: nextStatus,
-      ...baseUpdate,
-      provider_error: statusError ?? job.provider_error ?? null,
-    };
-  }
-
   const responseRes = await fetch(baseUrl, {
     headers: {
       Authorization: `Key ${falKey}`,
     },
   });
 
-  if (!responseRes.ok) {
+  let payload: FalResultResponse = {};
+  if (responseRes.ok) {
+    payload = (await responseRes.json().catch(() => ({}))) as FalResultResponse;
+  } else {
     console.warn("[sora-job:get] response fetch failed", {
       status: responseRes.status,
       jobId: job.id,
     });
-    return {
-      ...job,
-      ...baseUpdate,
-      provider_error: job.provider_error ?? null,
-    };
   }
-
-  const payload = (await responseRes
-    .json()
-    .catch(() => ({}))) as FalResultResponse;
 
   const extractLogs = (candidate: unknown): string[] | null => {
     if (!Array.isArray(candidate)) return null;
@@ -240,75 +215,88 @@ async function refreshFalJob(job: JobRow) {
     }
     return null;
   })();
+  const findVideoUrl = (
+    candidate: Record<string, unknown> | undefined,
+  ): string | null => {
+    if (!candidate) return null;
+    const directCandidates = [
+      candidate.video_url,
+      candidate.videoUrl,
+      (candidate.video as Record<string, unknown> | undefined)?.url,
+      candidate.url,
+      candidate.download_url,
+      candidate.downloadUrl,
+    ];
+    for (const value of directCandidates) {
+      if (typeof value === "string" && value.startsWith("http")) {
+        return value;
+      }
+    }
+    if (Array.isArray(candidate.videos) && candidate.videos.length > 0) {
+      const nested = findVideoUrl(
+        candidate.videos[0] as Record<string, unknown>,
+      );
+      if (nested) return nested;
+    }
+    if (candidate.video && typeof candidate.video === "object") {
+      const nested = findVideoUrl(candidate.video as Record<string, unknown>);
+      if (nested) return nested;
+    }
+    if (
+      Array.isArray(candidate.download_urls) &&
+      candidate.download_urls.length > 0
+    ) {
+      const mp4Entry = (candidate.download_urls as SoraDownload[]).find(
+        (item) => item.format === "mp4",
+      );
+      if (mp4Entry?.url) return mp4Entry.url;
+    }
+    if (
+      Array.isArray(candidate.outputs) &&
+      candidate.outputs.length > 0
+    ) {
+      const nested = findVideoUrl(
+        candidate.outputs[0] as Record<string, unknown>,
+      );
+      if (nested) return nested;
+    }
+    return null;
+  };
 
-  if (payload.status === "completed") {
+  const possibleSources = [
+    payload,
+    (payload.response as Record<string, unknown>) ?? undefined,
+    (payload.output as Record<string, unknown>) ?? undefined,
+    (payload.data as Record<string, unknown>) ?? undefined,
+    Array.isArray(payload.data)
+      ? (payload.data[0] as Record<string, unknown>)
+      : undefined,
+  ];
+
+  const asset =
+    possibleSources.reduce<string | null>((acc, source) => {
+      if (acc) return acc;
+      return findVideoUrl(source);
+    }, null) ?? null;
+
+  const normalizedPayloadStatus =
+    typeof payload.status === "string"
+      ? payload.status.toLowerCase()
+      : null;
+
+  if (!payload.status && asset) {
+    payload.status = "completed";
+  }
+
+  if (asset && normalizedPayloadStatus !== "failed") {
     console.log("[sora-job:get] completed", {
       jobId: job.id,
     });
-    const findVideoUrl = (
-      candidate: Record<string, unknown> | undefined,
-    ): string | null => {
-      if (!candidate) return null;
-      const directCandidates = [
-        candidate.video_url,
-        candidate.videoUrl,
-        candidate.url,
-        candidate.download_url,
-        candidate.downloadUrl,
-      ];
-      for (const value of directCandidates) {
-        if (typeof value === "string" && value.startsWith("http")) {
-          return value;
-        }
-      }
-      if (Array.isArray(candidate.videos) && candidate.videos.length > 0) {
-        const nested = findVideoUrl(
-          candidate.videos[0] as Record<string, unknown>,
-        );
-        if (nested) return nested;
-      }
-      if (
-        Array.isArray(candidate.download_urls) &&
-        candidate.download_urls.length > 0
-      ) {
-        const mp4Entry = (candidate.download_urls as SoraDownload[]).find(
-          (item) => item.format === "mp4",
-        );
-        if (mp4Entry?.url) return mp4Entry.url;
-      }
-      if (
-        Array.isArray(candidate.outputs) &&
-        candidate.outputs.length > 0
-      ) {
-        const nested = findVideoUrl(
-          candidate.outputs[0] as Record<string, unknown>,
-        );
-        if (nested) return nested;
-      }
-      return null;
-    };
-
-    const possibleSources = [
-      payload,
-      (payload.response as Record<string, unknown>) ?? undefined,
-      (payload.output as Record<string, unknown>) ?? undefined,
-      (payload.data as Record<string, unknown>) ?? undefined,
-      Array.isArray(payload.data)
-        ? (payload.data[0] as Record<string, unknown>)
-        : undefined,
-    ];
-
-    const asset =
-      possibleSources.reduce<string | null>((acc, source) => {
-        if (acc) return acc;
-        return findVideoUrl(source);
-      }, null) ?? null;
-
     return {
       ...job,
       status: "completed",
-      video_url: asset ?? job.video_url,
-      provider_status: payload.status ?? providerStatus,
+      video_url: asset,
+      provider_status: payload.status ?? providerStatus ?? "completed",
       queue_position: queuePosition,
       provider_last_checked: new Date().toISOString(),
       provider_logs: logs,
@@ -316,11 +304,11 @@ async function refreshFalJob(job: JobRow) {
     };
   }
 
-  if (payload.status === "failed") {
+  if (normalizedPayloadStatus === "failed") {
     return {
       ...job,
       status: "failed",
-      provider_status: payload.status ?? providerStatus,
+      provider_status: payload.status ?? providerStatus ?? "failed",
       queue_position: queuePosition,
       provider_last_checked: new Date().toISOString(),
       provider_logs: logs,
@@ -328,8 +316,23 @@ async function refreshFalJob(job: JobRow) {
     };
   }
 
+  if (["failed", "cancelled", "canceled"].includes(statusValue)) {
+    const nextStatus = statusValue.startsWith("cancel") ? "cancelled" : "failed";
+    console.log("[sora-job:get] terminal status", {
+      jobId: job.id,
+      status: nextStatus,
+    });
+    return {
+      ...job,
+      status: nextStatus,
+      ...baseUpdate,
+      provider_error: statusError ?? job.provider_error ?? null,
+    };
+  }
+
   return {
     ...job,
+    status: derivedStatus ?? job.status,
     ...baseUpdate,
     provider_error: providerErrorFromPayload ?? job.provider_error ?? null,
   };
