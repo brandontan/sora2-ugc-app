@@ -72,6 +72,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const { count: recentCount, error: rateError } = await supabase
+    .from("stripe_checkout_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte(
+      "created_at",
+      new Date(Date.now() - 60_000).toISOString(),
+    );
+
+  if (rateError) {
+    console.error("stripe-checkout: rate limit query failed", rateError);
+    return NextResponse.json(
+      { error: { message: "Could not verify checkout eligibility." } },
+      { status: 500 },
+    );
+  }
+
+  if ((recentCount ?? 0) >= 3) {
+    return NextResponse.json(
+      {
+        error: {
+          message:
+            "Too many checkout attempts in the last minute. Please wait a moment and try again.",
+        },
+      },
+      { status: 429 },
+    );
+  }
+
   const stripe = getStripeClient();
 
   try {
@@ -86,6 +115,7 @@ export async function POST(request: NextRequest) {
       ],
       success_url: `${siteUrl}/dashboard?checkout=success`,
       cancel_url: `${siteUrl}/dashboard?checkout=cancel`,
+      client_reference_id: user.id,
       metadata: {
         user_id: user.id,
         credit_delta: String(creditDelta),
@@ -93,6 +123,14 @@ export async function POST(request: NextRequest) {
     });
 
     const validated = successSchema.parse({ url: session.url });
+
+    const { error: logError } = await supabase
+      .from("stripe_checkout_sessions")
+      .insert({ user_id: user.id, session_id: session.id });
+
+    if (logError) {
+      console.error("stripe-checkout: failed to log session", logError);
+    }
 
     return NextResponse.json(validated);
   } catch (error) {

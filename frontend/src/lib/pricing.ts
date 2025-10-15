@@ -30,6 +30,36 @@ export function getCreditPackSize(): number {
   return parseNumber(envValue, DEFAULT_CREDIT_PACK_SIZE);
 }
 
+const stripePriceToCredits = () => {
+  const mappings: Record<string, number> = {};
+  const primaryPrice = process.env.STRIPE_PRICE_ID_15_CREDITS?.trim();
+  if (primaryPrice) {
+    mappings[primaryPrice] = getCreditPackSize();
+  }
+  const additional = process.env.STRIPE_PRICE_CREDIT_MAPPING;
+  if (additional) {
+    try {
+      const parsed = JSON.parse(additional) as Record<string, number>;
+      for (const [priceId, credits] of Object.entries(parsed)) {
+        if (typeof priceId === "string" && Number.isFinite(credits)) {
+          mappings[priceId] = Number(credits);
+        }
+      }
+    } catch {
+      // Ignore malformed mapping; safe fallback to primary price mapping only.
+    }
+  }
+  return mappings;
+};
+
+export function getCreditsForPrice(priceId: string | null | undefined): number | null {
+  if (!priceId) return null;
+  const normalized = priceId.trim();
+  if (!normalized) return null;
+  const mappings = stripePriceToCredits();
+  return normalized in mappings ? mappings[normalized] : null;
+}
+
 export function getPricingSummary(): PricingSummary {
   const packPriceUsd = parseNumber(
     process.env.NEXT_PUBLIC_SORA_PACK_PRICE_USD ?? process.env.SORA_PACK_PRICE_USD,
