@@ -173,8 +173,6 @@ const describeProviderState = (
   const providerStatus = job.provider_status
     ? job.provider_status.toUpperCase()
     : null;
-  const queuePosition =
-    typeof job.queue_position === "number" ? job.queue_position : null;
   const checkedSuffix = formatCheckedSuffix(job.provider_last_checked);
 
   if (canonicalStatus === "user_cancelled") {
@@ -193,29 +191,24 @@ const describeProviderState = (
   }
 
   if (providerStatus === "IN_QUEUE") {
-    if (queuePosition !== null) {
-      return `In queue · position ${queuePosition}${checkedSuffix}`.trim();
-    }
-    return `In queue${checkedSuffix}`.trim();
+    return "In queue";
   }
   if (providerStatus === "IN_PROGRESS") {
-    return `Rendering${checkedSuffix}`.trim();
+    return "Rendering";
   }
   if (providerStatus === "COMPLETED") {
-    return `Provider completed${checkedSuffix}`.trim();
+    return "Completed";
   }
   if (providerStatus === "FAILED") {
-    return job.provider_error
-      ? `Failed: ${job.provider_error}`
-      : `Provider failed${checkedSuffix}`.trim();
+    return job.provider_error ? `Failed: ${job.provider_error}` : "Failed";
   }
   if (providerStatus) {
     const pretty = providerStatus.replace(/_/g, " ").toLowerCase();
     const label = pretty.charAt(0).toUpperCase() + pretty.slice(1);
-    return `${label}${checkedSuffix}`.trim();
+    return label;
   }
 
-  return checkedSuffix ? `Checked ${checkedSuffix.slice(10)}`.trim() : "—";
+  return "—";
 };
 
 const providerLabel = (provider: string) =>

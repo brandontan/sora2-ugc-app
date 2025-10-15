@@ -77,7 +77,7 @@ const PROVIDER_CONFIG = {
   fal: {
     value: "fal" as const,
     label: "fal.ai",
-    helper: "Image-to-video with product shot placement.",
+    helper: "",
     durations: FAL_DURATION_OPTIONS as readonly number[],
     aspectRatios: ["16:9", "9:16"] as const,
     resolutions: ["auto", "720p", "1080p"] as const,
@@ -86,7 +86,7 @@ const PROVIDER_CONFIG = {
   wavespeed: {
     value: "wavespeed" as const,
     label: "WaveSpeed.ai",
-    helper: "Text-to-video tuned for permissive policy content.",
+    helper: "",
     durations: [4, 8, 12] as const,
     aspectRatios: ["16:9", "9:16", "1:1"] as const,
     sizesByAspect: {
@@ -188,36 +188,30 @@ const formatRelativeTime = (iso: string | null | undefined): string => {
 };
 
 const describeProviderState = (job: Job | null): string | null => {
-  if (!job?.provider_status) return null;
-  const status = job.provider_status.toUpperCase();
-  const checked = formatRelativeTime(job.provider_last_checked);
-  const queuePosition =
-    typeof job.queue_position === "number"
-      ? job.queue_position
-      : null;
+  const status = job?.provider_status?.toUpperCase() ?? null;
+  const checked = formatRelativeTime(job?.provider_last_checked ?? null);
   const providerError =
-    typeof job.provider_error === "string" && job.provider_error.trim().length > 0
+    typeof job?.provider_error === "string" && job.provider_error.trim().length > 0
       ? job.provider_error.trim()
       : null;
 
+  if (!status) return null;
+
   switch (status) {
     case "IN_QUEUE":
-      if (queuePosition !== null) {
-        return `In queue · position ${queuePosition} (checked ${checked})`;
-      }
-      return `In queue (checked ${checked})`;
+      return "In queue";
     case "IN_PROGRESS":
-      return `Rendering (checked ${checked})`;
+      return checked === "just now" ? "Rendering" : `Rendering (checked ${checked})`;
     case "COMPLETED":
       return checked === "just now" ? "Completed" : `Completed (checked ${checked})`;
     case "FAILED":
       return providerError
-        ? `Failed: ${providerError} (checked ${checked})`
-        : `Failed (checked ${checked})`;
+        ? `Failed: ${providerError}`
+        : "Failed";
     case "CANCELLATION_REQUESTED":
-      return `Cancellation requested (checked ${checked})`;
+      return "Cancellation requested";
     default:
-      return `Status: ${job.provider_status} (checked ${checked})`;
+      return job?.provider_status ?? null;
   }
 };
 
@@ -262,7 +256,6 @@ export default function Dashboard() {
     setMessageTone("neutral");
     setIsSubmitting(false);
     setCancellingJobIds({});
-    setDismissedJobIds(new Set());
     const uploadInput = document.getElementById(
       "product-file",
     ) as HTMLInputElement | null;
