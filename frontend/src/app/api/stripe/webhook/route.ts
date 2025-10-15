@@ -79,16 +79,28 @@ export async function POST(request: NextRequest) {
       for (const item of lineItems) {
         const priceId = item.price?.id ?? null;
         const creditsPerUnit = getCreditsForPrice(priceId);
-        if (!creditsPerUnit) {
-          console.warn("stripe-webhook: unknown price id", priceId);
+        const quantity = item.quantity ?? 1;
+
+        if (creditsPerUnit) {
+          totalCredits += creditsPerUnit * quantity;
           continue;
         }
-        const quantity = item.quantity ?? 1;
-        totalCredits += creditsPerUnit * quantity;
+
+        const fallback = Number(session.metadata?.credit_delta ?? 0);
+        if (Number.isFinite(fallback) && fallback > 0 && fallback <= 1000) {
+          totalCredits += Number(fallback);
+          console.warn("stripe-webhook: used metadata credit_delta fallback", {
+            priceId,
+            fallback,
+          });
+          continue;
+        }
+
+        console.warn("stripe-webhook: unknown price id", priceId);
       }
 
       if (totalCredits <= 0) {
-        throw new Error("No recognized Stripe price mapping for checkout session");
+        throw new Error("No recognized Stripe price mapping or metadata for checkout session");
       }
 
       const userId = expandedSession.client_reference_id ?? session.metadata?.user_id ?? null;
