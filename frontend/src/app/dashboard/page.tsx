@@ -35,6 +35,8 @@ type Job = {
   provider_logs?: string[] | null;
 };
 
+const DISMISSED_JOBS_STORAGE_KEY = "dashboard.dismissedJobIds";
+
 const jobSchema = z.object({
   id: z.string(),
   prompt: z.string(),
@@ -247,6 +249,7 @@ export default function Dashboard() {
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [dismissedJobsHydrated, setDismissedJobsHydrated] = useState(false);
   const resetFormState = useCallback(() => {
     console.log("[dashboard] resetFormState invoked");
     setPrompt("");
@@ -305,6 +308,63 @@ export default function Dashboard() {
     setDuration(PROVIDER_CONFIG[provider].durations[0]);
     setAspectRatio(PROVIDER_CONFIG[provider].aspectRatios[0]);
   }, [provider]);
+
+  useEffect(() => {
+    if (dismissedJobsHydrated) return;
+    if (typeof window === "undefined") return;
+
+    try {
+      const stored = window.localStorage.getItem(DISMISSED_JOBS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const ids = parsed.filter((value): value is string => typeof value === "string" && value.length > 0);
+          if (ids.length > 0) {
+            setDismissedJobIds(new Set(ids));
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("[dashboard] failed to load dismissed job ids", error);
+    } finally {
+      setDismissedJobsHydrated(true);
+    }
+  }, [dismissedJobsHydrated]);
+
+  useEffect(() => {
+    if (!dismissedJobsHydrated) return;
+    if (typeof window === "undefined") return;
+
+    if (dismissedJobIds.size === 0) {
+      window.localStorage.removeItem(DISMISSED_JOBS_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      DISMISSED_JOBS_STORAGE_KEY,
+      JSON.stringify(Array.from(dismissedJobIds)),
+    );
+  }, [dismissedJobIds, dismissedJobsHydrated]);
+
+  useEffect(() => {
+    if (!dismissedJobsHydrated) return;
+    if (dismissedJobIds.size === 0) return;
+
+    let mutated = false;
+    const next = new Set(dismissedJobIds);
+
+    for (const id of dismissedJobIds) {
+      const job = jobs.find((item) => item.id === id);
+      if (job && !isFinalStatus(job.status)) {
+        next.delete(id);
+        mutated = true;
+      }
+    }
+
+    if (mutated) {
+      setDismissedJobIds(next);
+    }
+  }, [jobs, dismissedJobIds, dismissedJobsHydrated]);
 
   useEffect(() => {
     if (!file) {
