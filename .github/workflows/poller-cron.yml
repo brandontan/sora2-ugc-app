@@ -1,0 +1,26 @@
+name: Sora Poller Cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  invoke-poller:
+    name: Invoke poller endpoint
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CRON_SECRET != '' }}
+    env:
+      POLLER_URL: https://genvidsfast.com/api/sora/poller?limit=5
+    steps:
+      - name: Call poller endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET GitHub secret is required." >&2
+            exit 1
+          fi
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$POLLER_URL"

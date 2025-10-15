@@ -22,6 +22,20 @@ type SupabaseContextValue = {
   isAdmin: boolean;
 };
 
+const createMockAccessToken = (userId: string): string => {
+  const rawToken = `mock-session:${userId}`;
+  if (typeof window !== "undefined" && typeof window.btoa === "function") {
+    return `mock:${window.btoa(rawToken)}`;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore Node Buffer is available during SSR builds
+    return `mock:${Buffer.from(rawToken).toString("base64")}`;
+  } catch {
+    return rawToken;
+  }
+};
+
 const SupabaseContext = createContext<SupabaseContextValue | undefined>(
   undefined,
 );
@@ -380,8 +394,9 @@ function createMockSupabaseClient(
       avatar_seed: template.avatarSeed,
       avatar_style: template.avatarStyle,
     };
+    const accessToken = createMockAccessToken(userId);
     return {
-      access_token: `mock-session:${userId}`,
+      access_token: accessToken,
       refresh_token: "",
       expires_in: 3600,
       expires_at: Math.floor(Date.now() / 1000) + 3600,
