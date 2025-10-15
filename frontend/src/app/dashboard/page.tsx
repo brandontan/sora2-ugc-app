@@ -256,6 +256,7 @@ export default function Dashboard() {
   const [isFetching, setIsFetching] = useState(false);
   const [productPreviewUrl, setProductPreviewUrl] = useState<string | null>(null);
   const [cancellingJobIds, setCancellingJobIds] = useState<Record<string, boolean>>({});
+  const [downloadingJobIds, setDownloadingJobIds] = useState<Record<string, boolean>>({});
   const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
     undefined,
   );
@@ -744,8 +745,9 @@ export default function Dashboard() {
                 ? { ...job, status: "cancelled_user" }
                 : job,
             ),
-          );
-        }
+  );
+}
+
 
         if (focusedJobId === jobId) {
           setFocusedJobId(undefined);
@@ -772,6 +774,59 @@ export default function Dashboard() {
     },
     [authFetch, focusedJobId, refreshBalance, refreshJobs],
   );
+
+  const handleDownloadJob = useCallback(async (job: Job) => {
+    if (!job.video_url) return;
+    let shouldSkip = false;
+    setDownloadingJobIds((prev) => {
+      if (prev[job.id]) {
+        shouldSkip = true;
+        return prev;
+      }
+      return { ...prev, [job.id]: true };
+    });
+    if (shouldSkip) return;
+    setMessage(null);
+    setMessageTone("neutral");
+    try {
+      const response = await fetch(job.video_url, {
+        mode: "cors",
+        credentials: "omit",
+      });
+      if (!response.ok) {
+        throw new Error(`Download failed with status ${response.status}.`);
+      }
+      const blob = await response.blob();
+      const contentType = response.headers.get("content-type") ?? "";
+      const extension = contentType.includes("webm")
+        ? "webm"
+        : contentType.includes("quicktime")
+          ? "mov"
+          : contentType.includes("mpeg")
+            ? "mpg"
+            : contentType.includes("mp4")
+              ? "mp4"
+              : "mp4";
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `sora-job-${job.id}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error("[dashboard] download failed", { jobId: job.id, error });
+      setMessageTone("error");
+      setMessage("Could not download video. Try again in a minute.");
+    } finally {
+      setDownloadingJobIds((prev) => {
+        const next = { ...prev };
+        delete next[job.id];
+        return next;
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!session || !supabase) return;
@@ -1164,6 +1219,7 @@ export default function Dashboard() {
                       const isCompleted = canonicalStatus === "completed";
                       const jobFinal = isFinalStatus(job.status);
                       const jobCancelling = Boolean(cancellingJobIds[job.id]);
+                      const jobDownloading = Boolean(downloadingJobIds[job.id]);
                       const jobProviderSummary = describeProviderState(job);
                       const statusLabel =
                         STATUS_DISPLAY_LABELS[canonicalStatus] ??
@@ -1271,16 +1327,28 @@ export default function Dashboard() {
                                   <Eye className="h-4 w-4" />
                                   {isFocused ? "Viewing" : "Preview"}
                                 </button>
-                                <a
-                                  href={job.video_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(event) => event.stopPropagation()}
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleDownloadJob(job);
+                                  }}
+                                  disabled={jobDownloading}
                                   aria-label="Download video"
-                                  className="inline-flex items-center justify-center rounded-full border border-border/70 bg-background/60 p-2 text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                  <Download className="h-4 w-4" />
-                                </a>
+                                  {jobDownloading ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      Downloading…
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="h-4 w-4" />
+                                      Download
+                                    </>
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={(event) => {
@@ -1612,4 +1680,5 @@ export default function Dashboard() {
       </main>
     </div>
   );
+
 }
