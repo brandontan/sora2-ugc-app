@@ -792,7 +792,12 @@ export async function DELETE(
 
   await supabase
     .from("jobs")
-    .update({ status: "cancelled_user" })
+    .update({
+      status: "cancelled_user",
+      provider_status: "cancelled",
+      queue_position: null,
+      provider_last_checked: new Date().toISOString(),
+    })
     .eq("id", id);
 
   const { data: refreshedJob } = await supabase

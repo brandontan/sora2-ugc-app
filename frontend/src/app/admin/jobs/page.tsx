@@ -14,6 +14,7 @@ type JobRow = {
   video_url: string | null;
   provider: string | null;
   provider_status: string | null;
+  provider_job_id: string | null;
   queue_position: number | null;
   provider_error: string | null;
   provider_last_checked: string | null;
@@ -80,7 +81,7 @@ export default async function AdminJobsPage() {
   const { data, error } = await supabase
     .from("jobs")
     .select(
-      "id, user_id, status, prompt, video_url, provider, provider_status, queue_position, provider_error, provider_last_checked, created_at, updated_at",
+      "id, user_id, status, prompt, video_url, provider, provider_status, provider_job_id, queue_position, provider_error, provider_last_checked, created_at, updated_at",
     )
     .order("created_at", { ascending: false })
     .limit(DEFAULT_LIMIT);
@@ -122,6 +123,10 @@ export default async function AdminJobsPage() {
       provider: typeof job.provider === "string" ? job.provider : null,
       provider_status:
         typeof job.provider_status === "string" ? job.provider_status : null,
+      provider_job_id:
+        typeof job.provider_job_id === "string"
+          ? job.provider_job_id
+          : null,
       queue_position:
         typeof queuePosition === "number" && Number.isFinite(queuePosition)
           ? queuePosition

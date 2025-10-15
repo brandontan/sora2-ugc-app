@@ -390,6 +390,14 @@ async function launchFalJob({
   try {
     const signedUrl = await ensureSignedUrl(supabase, assetPath);
 
+    const webhookUrl =
+      process.env.FAL_WEBHOOK_URL?.trim() ??
+      `${(
+        process.env.NEXT_PUBLIC_SITE_URL ??
+        process.env.SITE_URL ??
+        "https://genvidsfast.com"
+      ).replace(/\/$/, "")}/api/provider/fal/webhook`;
+
     const payload = {
       prompt,
       image_url: signedUrl,
@@ -397,6 +405,7 @@ async function launchFalJob({
       duration: selectedDuration,
       aspect_ratio: aspectRatio,
       model: modelKey,
+      webhook_url: webhookUrl,
     };
 
     const modelPath = selectedModelId.replace(/^https?:\/\//, "").replace(

@@ -43,6 +43,7 @@ type AdminJob = {
   video_url: string | null;
   provider: string | null;
   provider_status: string | null;
+  provider_job_id: string | null;
   queue_position: number | null;
   provider_error: string | null;
   provider_last_checked: string | null;
@@ -69,6 +70,8 @@ type EnrichedJob = AdminJob & {
   minutesSinceUpdate: number;
   isActive: boolean;
   isStuck: boolean;
+  displayId: string;
+  providerStateText: string;
 };
 
 export type AdminJobsDashboardProps = {
@@ -157,6 +160,64 @@ const formatBucketLabel = (timestamp: number) => {
   });
 };
 
+const formatCheckedSuffix = (iso?: string | null) => {
+  if (!iso) return "";
+  const relative = formatRelativeTime(iso);
+  return relative === "unknown" ? "" : ` (checked ${relative})`;
+};
+
+const describeProviderState = (
+  job: AdminJob,
+  canonicalStatus: CanonicalStatus,
+): string => {
+  const providerStatus = job.provider_status
+    ? job.provider_status.toUpperCase()
+    : null;
+  const queuePosition =
+    typeof job.queue_position === "number" ? job.queue_position : null;
+  const checkedSuffix = formatCheckedSuffix(job.provider_last_checked);
+
+  if (canonicalStatus === "user_cancelled") {
+    return `Cancelled by user${checkedSuffix}`.trim();
+  }
+  if (canonicalStatus === "cancelled") {
+    return `Cancelled${checkedSuffix}`.trim();
+  }
+  if (canonicalStatus === "completed") {
+    return job.video_url ? `Completed${checkedSuffix}`.trim() : `Completed (awaiting asset)${checkedSuffix}`.trim();
+  }
+  if (canonicalStatus === "failed") {
+    return job.provider_error
+      ? `Failed: ${job.provider_error}`
+      : `Failed${checkedSuffix}`.trim();
+  }
+
+  if (providerStatus === "IN_QUEUE") {
+    if (queuePosition !== null) {
+      return `In queue · position ${queuePosition}${checkedSuffix}`.trim();
+    }
+    return `In queue${checkedSuffix}`.trim();
+  }
+  if (providerStatus === "IN_PROGRESS") {
+    return `Rendering${checkedSuffix}`.trim();
+  }
+  if (providerStatus === "COMPLETED") {
+    return `Provider completed${checkedSuffix}`.trim();
+  }
+  if (providerStatus === "FAILED") {
+    return job.provider_error
+      ? `Failed: ${job.provider_error}`
+      : `Provider failed${checkedSuffix}`.trim();
+  }
+  if (providerStatus) {
+    const pretty = providerStatus.replace(/_/g, " ").toLowerCase();
+    const label = pretty.charAt(0).toUpperCase() + pretty.slice(1);
+    return `${label}${checkedSuffix}`.trim();
+  }
+
+  return checkedSuffix ? `Checked ${checkedSuffix.slice(10)}`.trim() : "—";
+};
+
 const providerLabel = (provider: string) =>
   PROVIDER_LABELS[provider] ?? provider.toUpperCase();
 
@@ -215,6 +276,8 @@ const enrichJobs = (jobs: AdminJob[]): EnrichedJob[] =>
     const isActive = ACTIVE_CANONICAL_STATUSES.has(canonicalStatus);
     const isStuck =
       isActive && minutesSinceUpdate >= STUCK_THRESHOLD_MINUTES;
+    const displayId = job.provider_job_id ?? job.id;
+    const providerStateText = describeProviderState(job, canonicalStatus);
 
     return {
       ...job,
@@ -225,6 +288,8 @@ const enrichJobs = (jobs: AdminJob[]): EnrichedJob[] =>
       minutesSinceUpdate,
       isActive,
       isStuck,
+      displayId,
+      providerStateText,
     };
   });
 
@@ -695,8 +760,17 @@ export function AdminJobsDashboard({
                     key={job.id}
                     className={`${job.isStuck ? "bg-rose-500/10" : "hover:bg-secondary/40"} transition`}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground/90">
-                      {job.id.slice(0, 8)}
+                    <td className="px-4 py-3 text-muted-foreground/90">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-mono text-xs">
+                          {(job.displayId ?? job.id).slice(0, 12)}
+                        </span>
+                        {job.provider_job_id ? (
+                          <span className="font-mono text-[0.65rem] text-muted-foreground/60">
+                            local {job.id.slice(0, 8)}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-2">
@@ -736,7 +810,12 @@ export function AdminJobsDashboard({
                       {formatRelativeTime(job.lastUpdateISO)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {job.provider_status ?? "—"}
+                      <div>{job.providerStateText}</div>
+                      {job.provider_error && job.providerStateText?.toLowerCase().includes("failed") === false ? (
+                        <div className="mt-1 text-xs text-rose-300/80">
+                          {job.provider_error}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {job.user_id.slice(0, 8)}
@@ -789,7 +868,7 @@ export function AdminJobsDashboard({
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs text-rose-200/80">
-                      {job.id.slice(0, 10)}
+                      {(job.displayId ?? job.id).slice(0, 10)}
                     </span>
                     <span>•</span>
                     <span>{providerLabel(job.providerKey)}</span>

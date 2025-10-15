@@ -138,6 +138,15 @@ export async function GET(request: NextRequest) {
         provider_error: refreshed.provider_error ?? null,
       };
 
+      const isFinalStatus =
+        refreshed.status === "completed" ||
+        refreshed.status === "failed" ||
+        refreshed.status === "cancelled";
+
+      if (isFinalStatus) {
+        metadataUpdate.queue_position = null;
+      }
+
       if (refreshed.status === "completed" && refreshed.video_url) {
         const { error: jobUpdateError } = await supabase
           .from("jobs")
