@@ -405,7 +405,7 @@ async function launchFalJob({
       duration: selectedDuration,
       aspect_ratio: aspectRatio,
       model: modelKey,
-      webhookUrl,
+      webhook_url: webhookUrl,
     };
 
     const modelPath = selectedModelId.replace(/^https?:\/\//, "").replace(

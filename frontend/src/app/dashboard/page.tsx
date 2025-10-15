@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ElementType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ElementType,
+  type SyntheticEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -109,8 +116,20 @@ const MODEL_OPTIONS = [
 type AspectRatioOption = "16:9" | "9:16" | "1:1";
 type ProviderKey = keyof typeof PROVIDER_CONFIG;
 const PROVIDER_ORDER: readonly ProviderKey[] = ["wavespeed", "fal"];
+type VideoAspectKind = "16:9" | "9:16" | "1:1";
 
 const MAX_PROMPT_LENGTH = 2000;
+
+const deriveAspectFromDimensions = (width: number, height: number): VideoAspectKind | null => {
+  if (!width || !height) {
+    return null;
+  }
+  const tolerance = Math.min(width, height) * 0.05;
+  if (Math.abs(width - height) <= tolerance) {
+    return "1:1";
+  }
+  return width >= height ? "16:9" : "9:16";
+};
 
 const DEFAULT_PROVIDER: ProviderKey = "wavespeed";
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
@@ -240,6 +259,7 @@ export default function Dashboard() {
   const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
     undefined,
   );
+  const [jobAspectRatios, setJobAspectRatios] = useState<Record<string, VideoAspectKind>>({});
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -433,9 +453,21 @@ export default function Dashboard() {
   }, [trayJobs]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
+  const featuredJobAspect = featuredJob ? jobAspectRatios[featuredJob.id] ?? null : null;
   const featuredCanonicalStatus = featuredJob
     ? normalizeStatus(featuredJob.status)
     : null;
+  const previewAspectClass = featuredVideoUrl && featuredJobAspect
+    ? featuredJobAspect === "9:16"
+      ? "aspect-[9/16] max-w-sm sm:max-w-md"
+      : featuredJobAspect === "1:1"
+        ? "aspect-square max-w-sm sm:max-w-md"
+        : "aspect-video max-w-5xl"
+    : aspectRatio === "9:16"
+      ? "aspect-[9/16] max-w-sm sm:max-w-md"
+      : aspectRatio === "1:1"
+        ? "aspect-square max-w-sm sm:max-w-md"
+        : "aspect-video max-w-5xl";
   const isFeaturedFinal = featuredJob ? isFinalStatus(featuredJob.status) : false;
   const featuredVideoStatus = featuredCanonicalStatus
     ? isFeaturedFinal && featuredCanonicalStatus !== "completed"
@@ -447,6 +479,88 @@ export default function Dashboard() {
     ? Boolean(cancellingJobIds[featuredJob.id])
     : false;
   const featuredProviderSummary = describeProviderState(featuredJob);
+
+  useEffect(() => {
+    setJobAspectRatios((previous) => {
+      if (Object.keys(previous).length === 0) return previous;
+      const activeJobIds = new Set(jobs.map((job) => job.id));
+      let mutated = false;
+      const next: Record<string, VideoAspectKind> = {};
+      for (const [jobId, ratio] of Object.entries(previous)) {
+        if (activeJobIds.has(jobId)) {
+          next[jobId] = ratio;
+        } else {
+          mutated = true;
+        }
+      }
+      if (!mutated && Object.keys(next).length === Object.keys(previous).length) {
+        return previous;
+      }
+      return next;
+    });
+  }, [jobs]);
+
+  const handleVideoMetadata = useCallback(
+    (event: SyntheticEvent<HTMLVideoElement>) => {
+      if (!featuredJob) return;
+      const { videoWidth, videoHeight } = event.currentTarget;
+      if (!videoWidth || !videoHeight) return;
+      const detectedAspect = deriveAspectFromDimensions(videoWidth, videoHeight);
+      if (!detectedAspect) return;
+      setJobAspectRatios((previous) => {
+        const current = previous[featuredJob.id];
+        if (current === detectedAspect) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [featuredJob.id]: detectedAspect,
+        };
+      });
+    },
+    [featuredJob],
+  );
+
+  useEffect(() => {
+    if (!featuredJob || !featuredVideoUrl) return;
+    if (jobAspectRatios[featuredJob.id]) return;
+
+    let isCancelled = false;
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.src = featuredVideoUrl;
+
+    const handleMetadata = () => {
+      if (isCancelled) return;
+      const detectedAspect = deriveAspectFromDimensions(
+        probe.videoWidth,
+        probe.videoHeight,
+      );
+      if (!detectedAspect) return;
+      setJobAspectRatios((previous) => {
+        const current = previous[featuredJob.id];
+        if (current === detectedAspect) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [featuredJob.id]: detectedAspect,
+        };
+      });
+    };
+
+    probe.addEventListener("loadedmetadata", handleMetadata);
+    probe.load();
+
+    return () => {
+      isCancelled = true;
+      probe.removeEventListener("loadedmetadata", handleMetadata);
+      // Prevent extra network usage
+      probe.src = "";
+    };
+  }, [featuredJob, featuredVideoUrl, jobAspectRatios]);
 
   useEffect(() => {
     if (!loading && !session) {
@@ -937,11 +1051,7 @@ export default function Dashboard() {
               <div className="space-y-4">
                 <div className="relative">
                   <div
-                    className={`relative mx-auto flex w-full items-center justify-center overflow-hidden rounded-[32px] border border-border/60 bg-secondary/40 shadow-lg shadow-primary/20 ${
-                      aspectRatio === "16:9"
-                        ? "aspect-video max-w-5xl"
-                        : "aspect-[9/16] max-w-sm sm:max-w-md"
-                    }`}
+                    className={`relative mx-auto flex w-full items-center justify-center overflow-hidden rounded-[32px] border border-border/60 bg-secondary/40 shadow-lg shadow-primary/20 ${previewAspectClass}`}
                   >
                     {featuredVideoUrl ? (
                       <video
@@ -950,7 +1060,9 @@ export default function Dashboard() {
                         controls
                         playsInline
                         preload="metadata"
-                        className="h-full w-full object-cover"
+                        crossOrigin="anonymous"
+                        onLoadedMetadata={handleVideoMetadata}
+                        className="h-full w-full object-contain"
                       />
                     ) : productPreviewUrl ? (
                       <Image
