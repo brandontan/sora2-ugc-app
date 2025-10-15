@@ -84,8 +84,12 @@ async function refreshFalJob(job: JobRow) {
     "fal-ai/sora-2/image-to-video")
     .replace(/^https?:\/\//, "")
     .replace(/^queue\.fal\.run\//, "");
+  const requestPath = modelPath
+    .split("/")
+    .slice(0, 2)
+    .join("/") || modelPath;
 
-  const baseUrl = `https://queue.fal.run/${modelPath}/requests/${job.provider_job_id}`;
+  const baseUrl = `https://queue.fal.run/${requestPath}/requests/${job.provider_job_id}`;
 
   const statusRes = await fetch(`${baseUrl}/status`, {
     method: "POST",
@@ -668,8 +672,12 @@ async function cancelSoraJob(job: JobRow) {
     "fal-ai/sora-2/image-to-video")
     .replace(/^https?:\/\//, "")
     .replace(/^queue\.fal\.run\//, "");
+  const requestPath = modelPath
+    .split("/")
+    .slice(0, 2)
+    .join("/") || modelPath;
 
-  const baseUrl = `https://queue.fal.run/${modelPath}/requests/${job.provider_job_id}`;
+  const baseUrl = `https://queue.fal.run/${requestPath}/requests/${job.provider_job_id}`;
 
   try {
     await fetch(`${baseUrl}/cancel`, {
