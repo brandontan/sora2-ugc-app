@@ -799,9 +799,7 @@ export default function Dashboard() {
           : parsed.providerStatus
             ? ` Provider ${parsed.providerStatus}.`
             : "";
-    setMessage(
-      `Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo} We'll email when ready.`,
-    );
+    setMessage(`Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo}`);
     setPrompt("");
     setFile(null);
     const resetDuration = (providerConfig.durations as readonly number[])[0];
