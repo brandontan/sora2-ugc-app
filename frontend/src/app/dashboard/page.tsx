@@ -788,18 +788,11 @@ export default function Dashboard() {
       return;
     }
 
-    const parsed = soraResponseSchema.parse(await response.json());
+    const { jobId } = soraResponseSchema.parse(await response.json());
 
     setMessageTone("neutral");
-    const queueInfo =
-      typeof parsed.queuePosition === "number"
-        ? ` Queue spot ${parsed.queuePosition}.`
-        : parsed.note
-          ? ` ${parsed.note}`
-          : parsed.providerStatus
-            ? ` Provider ${parsed.providerStatus}.`
-            : "";
-    setMessage(`Job ${parsed.jobId.slice(0, 6)} ${parsed.status}.${queueInfo}`);
+    setMessage(null);
+    setFocusedJobId(jobId);
     setPrompt("");
     setFile(null);
     const resetDuration = (providerConfig.durations as readonly number[])[0];
