@@ -12,6 +12,7 @@ const MODEL_KEYS = [
   "sora2",
   "veo31_fast_image",
   "veo31_fast_first_last",
+  "veo31_hq_image",
   "veo31_reference",
 ] as const;
 const ModelSchema = z.enum(MODEL_KEYS);
@@ -41,7 +42,27 @@ const requestSchema = z.object({
     .optional(),
 });
 
-const CREDIT_COST_STANDARD = Number(process.env.SORA_CREDIT_COST ?? 5);
+const parseCreditCost = (
+  value: string | undefined,
+  fallback: number,
+): number => {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const CREDIT_COST_STANDARD = parseCreditCost(
+  process.env.SORA_CREDIT_COST,
+  5,
+);
+const CREDIT_COST_VEO31_FAST = parseCreditCost(
+  process.env.SORA_VEO31_FAST_CREDIT_COST,
+  CREDIT_COST_STANDARD,
+);
+const CREDIT_COST_VEO31_HQ = parseCreditCost(
+  process.env.SORA_VEO31_HQ_CREDIT_COST,
+  8,
+);
 type ModelValue = typeof MODEL_KEYS[number];
 
 type ModelAssetMode = "single" | "first_last" | "references" | "none";
@@ -53,6 +74,7 @@ type ModelConfig = {
   durationFormat: DurationFormat;
   supportsAspect: boolean;
   defaultDurationSeconds: number;
+  creditCost: number;
 };
 
 const DEFAULT_DURATION_SECONDS = Number(
@@ -70,6 +92,7 @@ const MODEL_CONFIG: Record<ModelValue, ModelConfig> = {
       [4, 8, 12].includes(DEFAULT_DURATION_SECONDS) ?
         DEFAULT_DURATION_SECONDS :
         8,
+    creditCost: CREDIT_COST_STANDARD,
   },
   veo31_fast_image: {
     endpoint:
@@ -79,6 +102,7 @@ const MODEL_CONFIG: Record<ModelValue, ModelConfig> = {
     durationFormat: "string_seconds",
     supportsAspect: true,
     defaultDurationSeconds: 8,
+    creditCost: CREDIT_COST_VEO31_FAST,
   },
   veo31_fast_first_last: {
     endpoint:
@@ -88,6 +112,17 @@ const MODEL_CONFIG: Record<ModelValue, ModelConfig> = {
     durationFormat: "string_seconds",
     supportsAspect: true,
     defaultDurationSeconds: 8,
+    creditCost: CREDIT_COST_VEO31_FAST,
+  },
+  veo31_hq_image: {
+    endpoint:
+      process.env.FAL_VEO31_HQ_IMAGE_MODEL_ID ??
+      "fal-ai/veo3.1/image-to-video",
+    assetMode: "single",
+    durationFormat: "string_seconds",
+    supportsAspect: true,
+    defaultDurationSeconds: 8,
+    creditCost: CREDIT_COST_VEO31_HQ,
   },
   veo31_reference: {
     endpoint:
@@ -97,6 +132,7 @@ const MODEL_CONFIG: Record<ModelValue, ModelConfig> = {
     durationFormat: "string_seconds",
     supportsAspect: false,
     defaultDurationSeconds: 8,
+    creditCost: CREDIT_COST_VEO31_FAST,
   },
 };
 
@@ -188,7 +224,7 @@ export async function POST(request: NextRequest) {
   }
   const canonicalAssetPath = getCanonicalAssetPath(normalizedAssets);
 
-  const creditCost = CREDIT_COST_STANDARD;
+  const creditCost = selectedModelConfig.creditCost ?? CREDIT_COST_STANDARD;
   console.log("[sora-job] incoming", {
     userToken: token.slice(0, 16),
     durationSeconds,
@@ -431,6 +467,7 @@ export async function POST(request: NextRequest) {
       modelConfig: selectedModelConfig,
       assets: normalizedAssets,
       provider,
+      creditCost,
     });
   }
 
@@ -461,6 +498,7 @@ type LaunchFalParams = {
   modelConfig: ModelConfig;
   assets: AssetPaths;
   provider: ProviderValue;
+  creditCost: number;
 };
 
 async function launchFalJob({
@@ -474,6 +512,7 @@ async function launchFalJob({
   modelConfig,
   assets,
   provider,
+  creditCost,
 }: LaunchFalParams) {
   const falKey = process.env.FAL_KEY;
   if (!falKey) {

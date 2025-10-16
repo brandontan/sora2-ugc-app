@@ -210,6 +210,12 @@ export async function POST(request: NextRequest) {
   const canonicalStatus = mapToCanonicalStatus(providerStatus);
   const asset = findVideoUrl(payload) ?? findVideoUrl(payload.output ?? undefined);
   const providerError = extractProviderError(payload, logs);
+  console.log("[fal-webhook] received", {
+    requestId,
+    status: providerStatus,
+    canonicalStatus,
+    hasAsset: Boolean(asset),
+  });
   const baseUpdate = {
     provider_status: providerStatus ?? null,
     queue_position: canonicalStatus === "processing" || canonicalStatus === "queued"
@@ -221,17 +227,17 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    if (canonicalStatus === "completed" && asset) {
+    if (canonicalStatus === "completed") {
       await supabase
         .from("jobs")
         .update({
           status: "completed",
-          video_url: asset,
+          video_url: asset ?? job.video_url,
           ...baseUpdate,
         })
         .eq("id", job.id);
 
-      if (!job.video_url) {
+      if (asset && !job.video_url) {
         try {
           await supabase.from("assets").insert({
             user_id: job.user_id,
