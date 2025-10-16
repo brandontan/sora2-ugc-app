@@ -451,6 +451,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!dismissedJobsHydrated) return;
     if (dismissedJobIds.size === 0) return;
+    if (jobs.length === 0) return;
 
     let mutated = false;
     const next = new Set(dismissedJobIds);
