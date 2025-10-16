@@ -217,6 +217,13 @@ const MAX_PROMPT_LENGTH = 2000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_REFERENCE_IMAGES = 3;
 const formatSizeKb = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
+const abbreviateFilename = (name: string) => {
+  if (name.length <= 20) return name;
+  const [base, ...extParts] = name.split(".");
+  const ext = extParts.length > 0 ? `.${extParts.slice(-1)[0]}` : "";
+  const shortBase = base.slice(0, 12);
+  return `${shortBase}…${ext}`;
+};
 
 const deriveAspectFromDimensions = (width: number, height: number): VideoAspectKind | null => {
   if (!width || !height) {
@@ -359,6 +366,9 @@ export default function Dashboard() {
   const [focusedJobId, setFocusedJobId] = useState<string | null | undefined>(
     undefined,
   );
+  const [previewAsset, setPreviewAsset] = useState<
+    { type: "primary" | "firstFrame" | "lastFrame" | "reference"; index?: number } | null
+  >(null);
   const [jobAspectRatios, setJobAspectRatios] = useState<Record<string, VideoAspectKind>>({});
   const [trayTab, setTrayTab] = useState<"active" | "history">("active");
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
@@ -395,6 +405,7 @@ export default function Dashboard() {
     setAssetUploads({ references: [] });
     setAssetUploadKey((key) => key + 1);
     setProductPreviewUrl(null);
+    setPreviewAsset(null);
     const defaultModelConfig = MODEL_CONFIG[DEFAULT_MODEL];
     setModel(DEFAULT_MODEL);
     setDuration(defaultModelConfig.durations[0]);
@@ -560,19 +571,35 @@ export default function Dashboard() {
   }, [jobs, dismissedJobIds, dismissedJobsHydrated]);
 
   const previewSource = useMemo(() => {
-    if (assetUploads.primary) return assetUploads.primary;
-    if (assetUploads.firstFrame) return assetUploads.firstFrame;
-    if (assetUploads.references.length > 0) {
-      return assetUploads.references[0];
-    }
-    if (assetUploads.lastFrame) return assetUploads.lastFrame;
-    return null;
-  }, [
-    assetUploads.primary,
-    assetUploads.firstFrame,
-    assetUploads.lastFrame,
-    assetUploads.references,
-  ]);
+    const resolveFile = (
+      descriptor:
+        | { type: "primary" | "firstFrame" | "lastFrame" | "reference"; index?: number }
+        | null,
+    ): File | null => {
+      if (!descriptor) return null;
+      switch (descriptor.type) {
+        case "primary":
+          return assetUploads.primary ?? null;
+        case "firstFrame":
+          return assetUploads.firstFrame ?? null;
+        case "lastFrame":
+          return assetUploads.lastFrame ?? null;
+        case "reference":
+          return assetUploads.references[descriptor.index ?? assetUploads.references.length - 1] ?? null;
+        default:
+          return null;
+      }
+    };
+
+    return (
+      resolveFile(previewAsset) ||
+      assetUploads.primary ||
+      assetUploads.firstFrame ||
+      (assetUploads.references.length > 0 ? assetUploads.references[0] : null) ||
+      assetUploads.lastFrame ||
+      null
+    );
+  }, [previewAsset, assetUploads]);
 
   useEffect(() => {
     if (!previewSource) {
@@ -589,7 +616,7 @@ export default function Dashboard() {
   const previewMeta = useMemo(() => {
     if (!previewSource) return null;
     return {
-      name: previewSource.name,
+      name: abbreviateFilename(previewSource.name),
       sizeLabel: formatSizeKb(previewSource.size),
     };
   }, [previewSource]);
@@ -1210,6 +1237,7 @@ export default function Dashboard() {
         }));
         setMessage(null);
         setMessageTone("neutral");
+        setPreviewAsset({ type: key });
         event.target.value = "";
       },
     [validateImageFile, setValidationError],
@@ -1231,6 +1259,7 @@ export default function Dashboard() {
         validated.push(candidate);
       }
 
+      let nextReferences: File[] = [];
       setAssetUploads((prev) => {
         const combined = [...prev.references, ...validated];
         if (combined.length > MAX_REFERENCE_IMAGES) {
@@ -1238,14 +1267,21 @@ export default function Dashboard() {
             `You can attach up to ${MAX_REFERENCE_IMAGES} reference images.`,
           );
         }
+        nextReferences = combined.slice(0, MAX_REFERENCE_IMAGES);
         return {
           ...prev,
-          references: combined.slice(0, MAX_REFERENCE_IMAGES),
+          references: nextReferences,
         };
       });
       setMessage(null);
       setMessageTone("neutral");
       event.target.value = "";
+      if (validated.length > 0 && nextReferences.length > 0) {
+        setPreviewAsset({
+          type: "reference",
+          index: nextReferences.length - 1,
+        });
+      }
     },
     [validateImageFile, setValidationError],
   );
@@ -1267,18 +1303,36 @@ export default function Dashboard() {
       }
       setMessage(null);
       setMessageTone("neutral");
+      if (previewAsset?.type === key) {
+        setPreviewAsset(null);
+      }
     },
-    [primaryInputRef, firstFrameInputRef, lastFrameInputRef],
+    [primaryInputRef, firstFrameInputRef, lastFrameInputRef, previewAsset],
   );
 
   const removeReferenceAt = useCallback((index: number) => {
-    setAssetUploads((prev) => ({
-      ...prev,
-      references: prev.references.filter((_, idx) => idx !== index),
-    }));
+    let updatedReferences: File[] = [];
+    setAssetUploads((prev) => {
+      updatedReferences = prev.references.filter((_, idx) => idx !== index);
+      return {
+        ...prev,
+        references: updatedReferences,
+      };
+    });
+    if (previewAsset?.type === "reference") {
+      if (updatedReferences.length === 0) {
+        setPreviewAsset(null);
+      } else {
+        const nextIndex = Math.min(
+          previewAsset.index ?? updatedReferences.length - 1,
+          updatedReferences.length - 1,
+        );
+        setPreviewAsset({ type: "reference", index: nextIndex });
+      }
+    }
     setMessage(null);
     setMessageTone("neutral");
-  }, []);
+  }, [previewAsset]);
 
   const renderFrameUpload = (
     key: "firstFrame" | "lastFrame",
@@ -1291,7 +1345,7 @@ export default function Dashboard() {
         <p className="font-semibold text-foreground">{label}</p>
         <p>
           {file
-            ? `${file.name} · ${formatSizeKb(file.size)}`
+            ? `${abbreviateFilename(file.name)} · ${formatSizeKb(file.size)}`
             : `Select the ${label.toLowerCase()} still.`}
         </p>
       </div>
@@ -2210,7 +2264,7 @@ export default function Dashboard() {
                                 className="flex items-center gap-2 rounded-full border border-border/60 bg-secondary/30 px-3 py-1.5 text-xs text-foreground"
                               >
                                 <span className="max-w-[140px] truncate">
-                                  {reference.name}
+                                  {abbreviateFilename(reference.name)}
                                 </span>
                                 <span className="text-muted-foreground">
                                   · {formatSizeKb(reference.size)}
