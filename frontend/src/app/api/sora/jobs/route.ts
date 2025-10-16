@@ -550,7 +550,10 @@ async function launchFalJob({
       "",
     );
 
-    const falResponse = await fetch(`https://queue.fal.run/${modelPath}`, {
+    const queueUrl = new URL(`https://queue.fal.run/${modelPath}`);
+    queueUrl.searchParams.set("fal_webhook", webhookUrl);
+
+    const falResponse = await fetch(queueUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
