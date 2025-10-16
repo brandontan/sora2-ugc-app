@@ -139,7 +139,7 @@ def trigger_poller(limit: int) -> Dict[str, Any]:
 
 
 st.title("Sora Jobs Admin Dashboard")
-st.caption("Monitor job health across providers, trigger server poller, and inspect queue telemetry.")
+st.caption("Monitor job health across providers, trigger the fallback poller if webhooks lag, and inspect queue telemetry.")
 
 
 with st.sidebar:

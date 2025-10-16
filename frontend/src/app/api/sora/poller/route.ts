@@ -4,7 +4,7 @@ import { getServiceClient } from "@/lib/supabase/service-client";
 import {
   refreshJobFromProvider,
   type JobRow,
-} from "@/app/api/sora/jobs/[id]/route";
+} from "@/app/api/sora/jobs/provider-refresh";
 import { getMockStore, upsertJob } from "@/lib/mock-store";
 
 export const runtime = "nodejs";

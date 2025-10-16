@@ -112,7 +112,6 @@ const ACTIVE_CANONICAL_STATUSES = new Set<CanonicalStatus>([
 
 const PROVIDER_LABELS: Record<string, string> = {
   fal: "fal.ai",
-  wavespeed: "WaveSpeed",
 };
 
 const STATUS_COLORS: Record<CanonicalStatus, string> = {
@@ -127,7 +126,6 @@ const STATUS_COLORS: Record<CanonicalStatus, string> = {
 
 const PROVIDER_COLORS: Record<string, string> = {
   fal: "#4ade80",
-  wavespeed: "#38bdf8",
   unknown: "#a855f7",
 };
 

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ElementType,
   type SyntheticEvent,
@@ -33,6 +34,7 @@ type Job = {
   status: string;
   video_url: string | null;
   created_at: string;
+  updated_at: string | null;
   credit_cost: number;
   provider?: string | null;
   provider_status?: string | null;
@@ -43,6 +45,7 @@ type Job = {
 };
 
 const DISMISSED_JOBS_STORAGE_KEY = "dashboard.dismissedJobIds";
+const HIDE_COMPLETED_BEFORE_STORAGE_KEY = "dashboard.hideCompletedBefore";
 
 const jobSchema = z.object({
   id: z.string(),
@@ -50,6 +53,7 @@ const jobSchema = z.object({
   status: z.string(),
   video_url: z.string().nullable(),
   created_at: z.string(),
+  updated_at: z.string().nullable().optional(),
   credit_cost: z.number(),
   provider: z.string().nullable().optional(),
   provider_status: z.string().nullable().optional(),
@@ -80,45 +84,93 @@ const ENV_FAL_DURATION_OPTIONS = (process.env
 const FAL_DURATION_OPTIONS =
   ENV_FAL_DURATION_OPTIONS.length > 0 ? ENV_FAL_DURATION_OPTIONS : [4, 8, 12];
 
-const PROVIDER_CONFIG = {
-  fal: {
-    value: "fal" as const,
-    label: "fal.ai",
-    helper: "",
+type AspectRatioOption = "16:9" | "9:16" | "1:1";
+type AssetMode = "single" | "first_last" | "references" | "none";
+type ModelKey =
+  | "veo31_fast_image"
+  | "veo31_fast_first_last"
+  | "veo31_reference"
+  | "sora2";
+
+type ModelConfig = {
+  value: ModelKey;
+  label: string;
+  helper?: string;
+  assetMode: AssetMode;
+  durations: readonly number[];
+  aspectRatios?: readonly AspectRatioOption[];
+  provider: string;
+};
+
+type AssetUploads = {
+  primary?: File;
+  firstFrame?: File;
+  lastFrame?: File;
+  references: File[];
+};
+
+type UploadedAssetPaths = {
+  primary?: string;
+  firstFrame?: string;
+  lastFrame?: string;
+  references: string[];
+};
+
+const MODEL_CONFIG: Record<ModelKey, ModelConfig> = {
+  veo31_fast_image: {
+    value: "veo31_fast_image",
+    label: "Veo 3.1 Fast — Image → Video",
+    helper: "Single hero shot to animated product.",
+    assetMode: "single",
+    durations: [8] as const,
+    aspectRatios: ["16:9", "9:16", "1:1"] as const,
+    provider: "fal",
+  },
+  veo31_fast_first_last: {
+    value: "veo31_fast_first_last",
+    label: "Veo 3.1 Fast — First & Last Frame",
+    helper: "Define start & end beats for smooth motion.",
+    assetMode: "first_last",
+    durations: [8] as const,
+    aspectRatios: ["16:9", "9:16", "1:1"] as const,
+    provider: "fal",
+  },
+  veo31_reference: {
+    value: "veo31_reference",
+    label: "Veo 3.1 — Reference Gallery",
+    helper: "Keep characters & products consistent.",
+    assetMode: "references",
+    durations: [8] as const,
+    aspectRatios: [] as const,
+    provider: "fal",
+  },
+  sora2: {
+    value: "sora2",
+    label: "Sora 2 — Image → Video",
+    helper: "Balanced quality with fast turnaround.",
+    assetMode: "single",
     durations: FAL_DURATION_OPTIONS as readonly number[],
     aspectRatios: ["16:9", "9:16"] as const,
-    resolutions: ["auto", "720p", "1080p"] as const,
-    slug: () => "fal.ai/sora-2/image-to-video",
+    provider: "fal",
   },
-  wavespeed: {
-    value: "wavespeed" as const,
-    label: "WaveSpeed.ai",
-    helper: "",
-    durations: [4, 8, 12] as const,
-    aspectRatios: ["16:9", "9:16", "1:1"] as const,
-    sizesByAspect: {
-      "16:9": ["1280*720"],
-      "9:16": ["720*1280"],
-      "1:1": ["720*720"],
-    } as Record<"16:9" | "9:16" | "1:1", readonly string[]>,
-    slug: () => "wavespeed.ai/openai/sora",
-  },
-} as const;
+};
 
-const MODEL_OPTIONS = [
-  {
-    value: "sora2",
-    label: "Sora",
-    helper: "Balanced quality with fast turnaround.",
-  },
+const MODEL_ORDER: readonly ModelKey[] = [
+  "veo31_fast_image",
+  "veo31_fast_first_last",
+  "sora2",
 ] as const;
 
-type AspectRatioOption = "16:9" | "9:16" | "1:1";
-type ProviderKey = keyof typeof PROVIDER_CONFIG;
-const PROVIDER_ORDER: readonly ProviderKey[] = ["wavespeed", "fal"];
+const MODEL_OPTIONS = MODEL_ORDER.map((key) => MODEL_CONFIG[key]);
+const DEFAULT_MODEL: ModelKey = MODEL_OPTIONS[0].value;
+const DEFAULT_ASPECT_RATIO: AspectRatioOption =
+  MODEL_CONFIG[DEFAULT_MODEL].aspectRatios?.[0] ?? "16:9";
 type VideoAspectKind = "16:9" | "9:16" | "1:1";
 
 const MAX_PROMPT_LENGTH = 2000;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_REFERENCE_IMAGES = 3;
+const formatSizeKb = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
 
 const deriveAspectFromDimensions = (width: number, height: number): VideoAspectKind | null => {
   if (!width || !height) {
@@ -130,10 +182,6 @@ const deriveAspectFromDimensions = (width: number, height: number): VideoAspectK
   }
   return width >= height ? "16:9" : "9:16";
 };
-
-const DEFAULT_PROVIDER: ProviderKey = "wavespeed";
-const DEFAULT_ASPECT_RATIO: AspectRatioOption =
-  PROVIDER_CONFIG[DEFAULT_PROVIDER].aspectRatios[0];
 
 type CanonicalStatus =
   | "queued"
@@ -240,16 +288,17 @@ export default function Dashboard() {
 
   const [balance, setBalance] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [file, setFile] = useState<File | null>(null);
+  const [assetUploads, setAssetUploads] = useState<AssetUploads>({
+    references: [],
+  });
+  const [assetUploadKey, setAssetUploadKey] = useState(0);
   const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState<ProviderKey>(DEFAULT_PROVIDER);
+  const [model, setModel] = useState<ModelKey>(DEFAULT_MODEL);
   const [aspectRatio, setAspectRatio] =
     useState<AspectRatioOption>(DEFAULT_ASPECT_RATIO);
   const [duration, setDuration] = useState<number>(
-    PROVIDER_CONFIG[DEFAULT_PROVIDER].durations[0],
+    MODEL_CONFIG[DEFAULT_MODEL].durations[0],
   );
-  const [model, setModel] =
-    useState<(typeof MODEL_OPTIONS)[number]["value"]>(MODEL_OPTIONS[0].value);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"neutral" | "error">("neutral");
@@ -264,24 +313,29 @@ export default function Dashboard() {
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [hideCompletedBefore, setHideCompletedBefore] = useState<string | null>(null);
   const [dismissedJobsHydrated, setDismissedJobsHydrated] = useState(false);
   const resetFormState = useCallback(() => {
     console.log("[dashboard] resetFormState invoked");
     setPrompt("");
-    setFile(null);
+    setAssetUploads({ references: [] });
+    setAssetUploadKey((key) => key + 1);
     setProductPreviewUrl(null);
-    setDuration(PROVIDER_CONFIG[provider].durations[0]);
-    setAspectRatio(PROVIDER_CONFIG[provider].aspectRatios[0]);
-    setModel(MODEL_OPTIONS[0].value);
+    const defaultModelConfig = MODEL_CONFIG[DEFAULT_MODEL];
+    setModel(DEFAULT_MODEL);
+    setDuration(defaultModelConfig.durations[0]);
+    setAspectRatio(
+      defaultModelConfig.aspectRatios?.[0] ?? DEFAULT_ASPECT_RATIO,
+    );
     setMessage(null);
     setMessageTone("neutral");
     setIsSubmitting(false);
     setCancellingJobIds({});
-    const uploadInput = document.getElementById(
-      "product-file",
-    ) as HTMLInputElement | null;
-    if (uploadInput) uploadInput.value = "";
-  }, [provider]);
+    setHideCompletedBefore(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(HIDE_COMPLETED_BEFORE_STORAGE_KEY);
+    }
+  }, []);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
   const creditCostPerRun = pricingSummary.creditCostPerRun;
@@ -297,7 +351,13 @@ export default function Dashboard() {
     ? dicebearUrl(profile.avatar_seed, profile.avatar_style ?? undefined)
     : null;
 
-  const providerConfig = PROVIDER_CONFIG[provider];
+  const modelConfig = MODEL_CONFIG[model];
+  const { durations, aspectRatios: modelAspectRatios, provider: modelProvider, assetMode } = modelConfig;
+  const aspectRatioOptions = modelAspectRatios ?? [];
+  const primaryInputRef = useRef<HTMLInputElement | null>(null);
+  const firstFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const lastFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const referencesInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedModelLabel = useMemo(() => {
     const match = MODEL_OPTIONS.find((item) => item.value === model);
@@ -305,23 +365,40 @@ export default function Dashboard() {
   }, [model]);
 
   useEffect(() => {
-    const allowed = providerConfig.aspectRatios as readonly AspectRatioOption[];
-    if (!allowed.includes(aspectRatio)) {
-      setAspectRatio(allowed[0]);
-    }
-  }, [providerConfig, aspectRatio]);
-
-  useEffect(() => {
-    const allowedDurations = providerConfig.durations as readonly number[];
+    const allowedDurations = durations;
     if (!allowedDurations.includes(duration)) {
       setDuration(allowedDurations[0]);
     }
-  }, [providerConfig, duration]);
+  }, [durations, duration]);
 
   useEffect(() => {
-    setDuration(PROVIDER_CONFIG[provider].durations[0]);
-    setAspectRatio(PROVIDER_CONFIG[provider].aspectRatios[0]);
-  }, [provider]);
+    const allowed = modelAspectRatios;
+    if (!allowed || allowed.length === 0) {
+      return;
+    }
+    if (!allowed.includes(aspectRatio)) {
+      setAspectRatio(allowed[0]);
+    }
+  }, [modelAspectRatios, aspectRatio]);
+
+  useEffect(() => {
+    setAssetUploads({ references: [] });
+    setAssetUploadKey((key) => key + 1);
+    if (primaryInputRef.current) primaryInputRef.current.value = "";
+    if (firstFrameInputRef.current) firstFrameInputRef.current.value = "";
+    if (lastFrameInputRef.current) lastFrameInputRef.current.value = "";
+    if (referencesInputRef.current) referencesInputRef.current.value = "";
+
+    setMessage(null);
+    setMessageTone("neutral");
+
+    if (durations.length > 0) {
+      setDuration(durations[0]);
+    }
+    if (modelAspectRatios && modelAspectRatios.length > 0) {
+      setAspectRatio(modelAspectRatios[0]);
+    }
+  }, [assetMode, durations, modelAspectRatios, modelConfig.value]);
 
   useEffect(() => {
     if (dismissedJobsHydrated) return;
@@ -338,6 +415,13 @@ export default function Dashboard() {
           }
         }
       }
+
+      const hideBeforeValue = window.localStorage.getItem(
+        HIDE_COMPLETED_BEFORE_STORAGE_KEY,
+      );
+      if (hideBeforeValue && typeof hideBeforeValue === "string") {
+        setHideCompletedBefore(hideBeforeValue);
+      }
     } catch (error) {
       console.warn("[dashboard] failed to load dismissed job ids", error);
     } finally {
@@ -351,14 +435,22 @@ export default function Dashboard() {
 
     if (dismissedJobIds.size === 0) {
       window.localStorage.removeItem(DISMISSED_JOBS_STORAGE_KEY);
-      return;
+    } else {
+      window.localStorage.setItem(
+        DISMISSED_JOBS_STORAGE_KEY,
+        JSON.stringify(Array.from(dismissedJobIds)),
+      );
     }
 
-    window.localStorage.setItem(
-      DISMISSED_JOBS_STORAGE_KEY,
-      JSON.stringify(Array.from(dismissedJobIds)),
-    );
-  }, [dismissedJobIds, dismissedJobsHydrated]);
+    if (hideCompletedBefore) {
+      window.localStorage.setItem(
+        HIDE_COMPLETED_BEFORE_STORAGE_KEY,
+        hideCompletedBefore,
+      );
+    } else {
+      window.localStorage.removeItem(HIDE_COMPLETED_BEFORE_STORAGE_KEY);
+    }
+  }, [dismissedJobIds, dismissedJobsHydrated, hideCompletedBefore]);
 
   useEffect(() => {
     if (!dismissedJobsHydrated) return;
@@ -369,7 +461,7 @@ export default function Dashboard() {
 
     for (const id of dismissedJobIds) {
       const job = jobs.find((item) => item.id === id);
-      if (job && !isFinalStatus(job.status)) {
+      if (!job) {
         next.delete(id);
         mutated = true;
       }
@@ -380,24 +472,75 @@ export default function Dashboard() {
     }
   }, [jobs, dismissedJobIds, dismissedJobsHydrated]);
 
+  const previewSource = useMemo(() => {
+    if (assetUploads.primary) return assetUploads.primary;
+    if (assetUploads.firstFrame) return assetUploads.firstFrame;
+    if (assetUploads.references.length > 0) {
+      return assetUploads.references[0];
+    }
+    if (assetUploads.lastFrame) return assetUploads.lastFrame;
+    return null;
+  }, [
+    assetUploads.primary,
+    assetUploads.firstFrame,
+    assetUploads.lastFrame,
+    assetUploads.references,
+  ]);
+
   useEffect(() => {
-    if (!file) {
+    if (!previewSource) {
       setProductPreviewUrl(null);
       return;
     }
-    const objectUrl = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(previewSource);
     setProductPreviewUrl(objectUrl);
     return () => {
       URL.revokeObjectURL(objectUrl);
     };
-  }, [file]);
+  }, [previewSource]);
+
+  const previewMeta = useMemo(() => {
+    if (!previewSource) return null;
+    return {
+      name: previewSource.name,
+      sizeLabel: formatSizeKb(previewSource.size),
+    };
+  }, [previewSource]);
+
+  const uploadPlaceholder = useMemo(() => {
+    switch (assetMode) {
+      case "single":
+        return "Drop a product mockup to get started.";
+      case "first_last":
+        return "Provide opening and closing frames.";
+      case "references":
+        return "Add reference stills for consistent looks.";
+      default:
+        return "Upload assets to get started.";
+    }
+  }, [assetMode]);
+
+  const isJobDismissed = useCallback(
+    (job: Job): boolean => {
+      if (dismissedJobIds.has(job.id)) {
+        return true;
+      }
+      if (
+        isFinalStatus(job.status) &&
+        hideCompletedBefore &&
+        job.updated_at &&
+        job.updated_at <= hideCompletedBefore
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [dismissedJobIds, hideCompletedBefore],
+  );
 
   const trayJobs = useMemo(
-    () =>
-      jobs.filter(
-        (job) => isTrayStatus(job.status) && !dismissedJobIds.has(job.id),
-      ),
-    [jobs, dismissedJobIds],
+    () => jobs.filter((job) => isTrayStatus(job.status) && !isJobDismissed(job)),
+    [jobs, isJobDismissed],
   );
 
   useEffect(() => {
@@ -433,11 +576,15 @@ export default function Dashboard() {
   const handleClearAllJobs = useCallback(() => {
     if (trayJobs.length === 0) return;
 
-    const removableIds = trayJobs
-      .filter((job) => isFinalStatus(job.status))
-      .map((job) => job.id);
+    const finalJobs = trayJobs.filter((job) => isFinalStatus(job.status));
+    const nowIso = new Date().toISOString();
+    setHideCompletedBefore(nowIso);
 
-    if (removableIds.length === 0) return;
+    const removableIds = finalJobs.map((job) => job.id);
+
+    if (removableIds.length === 0) {
+      return;
+    }
 
     const removableSet = new Set(removableIds);
 
@@ -650,6 +797,12 @@ export default function Dashboard() {
         typeof job.created_at === "string"
           ? job.created_at
           : new Date().toISOString(),
+      updated_at:
+        typeof job.updated_at === "string"
+          ? job.updated_at
+          : typeof job.created_at === "string"
+            ? job.created_at
+            : new Date().toISOString(),
       credit_cost:
         typeof job.credit_cost === "number"
           ? job.credit_cost
@@ -700,7 +853,11 @@ export default function Dashboard() {
     );
 
     console.log("[dashboard] upgradedJobs", upgraded);
-    setJobs(upgraded);
+    const sanitizedJobs = upgraded.map((job) => ({
+      ...job,
+      updated_at: job.updated_at ?? job.created_at,
+    }));
+    setJobs(sanitizedJobs);
   }, [authFetch, creditCostPerRun, session?.user?.id, supabase]);
 
   const handleCancelJob = useCallback(
@@ -735,8 +892,12 @@ export default function Dashboard() {
         const parsed = payload?.job ? jobSchema.safeParse(payload.job) : null;
 
         if (parsed?.success) {
+          const sanitizedJob = {
+            ...parsed.data,
+            updated_at: parsed.data.updated_at ?? parsed.data.created_at,
+          };
           setJobs((prev) =>
-            prev.map((job) => (job.id === jobId ? parsed.data : job)),
+            prev.map((job) => (job.id === jobId ? sanitizedJob : job)),
           );
         } else {
           setJobs((prev) =>
@@ -868,35 +1029,203 @@ export default function Dashboard() {
     };
   }, [refreshBalance, session?.user?.id, supabase]);
 
-  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const candidate = event.target.files?.[0];
-    if (!candidate) return;
+  const setValidationError = useCallback((message: string) => {
+    setMessageTone("error");
+    setMessage(message);
+  }, []);
+
+  const validateImageFile = useCallback((candidate: File): string | null => {
     if (!candidate.type.startsWith("image/")) {
-      setMessageTone("error");
-      setMessage("Only image files are supported for now.");
-      return;
+      return "Only image files are supported for now.";
     }
-    if (candidate.size > 10 * 1024 * 1024) {
-      setMessageTone("error");
-      setMessage("Image must be 10MB or less.");
-      return;
+    if (candidate.size > MAX_IMAGE_BYTES) {
+      return "Image must be 10MB or less.";
     }
-    setFile(candidate);
+    return null;
+  }, []);
+
+  const handleSingleAssetChange = useCallback(
+    (key: "primary" | "firstFrame" | "lastFrame") =>
+      (event: React.ChangeEvent<HTMLInputElement>) => {
+        const candidate = event.target.files?.[0];
+        if (!candidate) return;
+        const validationError = validateImageFile(candidate);
+        if (validationError) {
+          setValidationError(validationError);
+          event.target.value = "";
+          return;
+        }
+        setAssetUploads((prev) => ({
+          ...prev,
+          [key]: candidate,
+        }));
+        setMessage(null);
+        setMessageTone("neutral");
+        event.target.value = "";
+      },
+    [validateImageFile, setValidationError],
+  );
+
+  const handleReferencesChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const candidates = Array.from(event.target.files ?? []);
+      if (candidates.length === 0) return;
+
+      const validated: File[] = [];
+      for (const candidate of candidates) {
+        const validationError = validateImageFile(candidate);
+        if (validationError) {
+          setValidationError(validationError);
+          event.target.value = "";
+          return;
+        }
+        validated.push(candidate);
+      }
+
+      setAssetUploads((prev) => {
+        const combined = [...prev.references, ...validated];
+        if (combined.length > MAX_REFERENCE_IMAGES) {
+          setValidationError(
+            `You can attach up to ${MAX_REFERENCE_IMAGES} reference images.`,
+          );
+        }
+        return {
+          ...prev,
+          references: combined.slice(0, MAX_REFERENCE_IMAGES),
+        };
+      });
+      setMessage(null);
+      setMessageTone("neutral");
+      event.target.value = "";
+    },
+    [validateImageFile, setValidationError],
+  );
+
+  const clearAsset = useCallback(
+    (key: "primary" | "firstFrame" | "lastFrame") => {
+      setAssetUploads((prev) => ({
+        ...prev,
+        [key]: undefined,
+      }));
+      const refMap = {
+        primary: primaryInputRef,
+        firstFrame: firstFrameInputRef,
+        lastFrame: lastFrameInputRef,
+      } as const;
+      const ref = refMap[key];
+      if (ref.current) {
+        ref.current.value = "";
+      }
+      setMessage(null);
+      setMessageTone("neutral");
+    },
+    [primaryInputRef, firstFrameInputRef, lastFrameInputRef],
+  );
+
+  const removeReferenceAt = useCallback((index: number) => {
+    setAssetUploads((prev) => ({
+      ...prev,
+      references: prev.references.filter((_, idx) => idx !== index),
+    }));
     setMessage(null);
-  };
+    setMessageTone("neutral");
+  }, []);
+
+  const renderFrameUpload = (
+    key: "firstFrame" | "lastFrame",
+    label: string,
+    file: File | undefined,
+    ref: React.MutableRefObject<HTMLInputElement | null>,
+  ) => (
+    <div className="rounded-3xl border border-border/60 bg-secondary/20 p-4">
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <p className="font-semibold text-foreground">{label}</p>
+        <p>
+          {file
+            ? `${file.name} · ${formatSizeKb(file.size)}`
+            : `Select the ${label.toLowerCase()} still.`}
+        </p>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+          Upload {label.toLowerCase()}
+          <input
+            ref={ref}
+            key={`${key}-${assetUploadKey}`}
+            className="hidden"
+            type="file"
+            accept="image/*"
+            onChange={handleSingleAssetChange(key)}
+          />
+        </label>
+        {file ? (
+          <button
+            type="button"
+            onClick={() => clearAsset(key)}
+            aria-label={`Remove ${label.toLowerCase()} image`}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+          >
+            <Trash2 className="h-4 w-4" />
+            Remove
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!session) return;
-    if (!file) {
-      setMessageTone("error");
-      setMessage("Upload a product shot first.");
-      return;
-    }
     if (!prompt.trim()) {
       setMessageTone("error");
       setMessage("Add a short prompt so Sora knows the style.");
       return;
+    }
+
+    const assetRequirements: Array<{
+      key: "primary" | "firstFrame" | "lastFrame" | "references";
+      files: File[];
+    }> = [];
+
+    switch (assetMode) {
+      case "single":
+        if (!assetUploads.primary) {
+          setValidationError("Upload a product shot first.");
+          return;
+        }
+        assetRequirements.push({
+          key: "primary",
+          files: [assetUploads.primary],
+        });
+        break;
+      case "first_last":
+        if (!assetUploads.firstFrame || !assetUploads.lastFrame) {
+          setValidationError(
+            "Provide both a first frame and a last frame image.",
+          );
+          return;
+        }
+        assetRequirements.push({
+          key: "firstFrame",
+          files: [assetUploads.firstFrame],
+        });
+        assetRequirements.push({
+          key: "lastFrame",
+          files: [assetUploads.lastFrame],
+        });
+        break;
+      case "references":
+        if (assetUploads.references.length === 0) {
+          setValidationError("Add at least one reference image.");
+          return;
+        }
+        assetRequirements.push({
+          key: "references",
+          files: assetUploads.references,
+        });
+        break;
+      case "none":
+        break;
     }
 
     setIsSubmitting(true);
@@ -909,31 +1238,77 @@ export default function Dashboard() {
       return;
     }
 
-    const path = `${session.user.id}/${Date.now()}-${file.name}`;
-    const { error: uploadError } = await supabase.storage
-      .from("product-uploads")
-      .upload(path, file);
+    const uploadedPaths: UploadedAssetPaths = { references: [] };
 
-    if (uploadError) {
-      setMessageTone("error");
-      setMessage(uploadError.message);
+    try {
+      for (const requirement of assetRequirements) {
+        for (const [index, candidate] of requirement.files.entries()) {
+          const uniqueSuffix =
+            typeof globalThis.crypto !== "undefined" &&
+            typeof globalThis.crypto.randomUUID === "function"
+              ? globalThis.crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const path = `${session.user.id}/${uniqueSuffix}-${requirement.key}-${index}-${candidate.name}`;
+          const { error: uploadError } = await supabase.storage
+            .from("product-uploads")
+            .upload(path, candidate);
+
+          if (uploadError) {
+            throw new Error(uploadError.message);
+          }
+
+          if (requirement.key === "references") {
+            uploadedPaths.references.push(path);
+          } else {
+            uploadedPaths[requirement.key] = path;
+          }
+        }
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to upload assets. Try again.";
+      setValidationError(message);
       setIsSubmitting(false);
       return;
     }
 
     const payload: Record<string, unknown> = {
       prompt,
-      assetPath: path,
       durationSeconds: duration,
-      aspectRatio,
       model,
-      provider,
     };
 
-    const sizesByAspect = PROVIDER_CONFIG.wavespeed.sizesByAspect;
-    payload.size =
-      sizesByAspect[aspectRatio]?.[0] ??
-      sizesByAspect[PROVIDER_CONFIG.wavespeed.aspectRatios[0]][0];
+    const assetsPayload: Record<string, unknown> = {};
+    if (uploadedPaths.primary) {
+      assetsPayload.primary = uploadedPaths.primary;
+    }
+    if (uploadedPaths.firstFrame) {
+      assetsPayload.firstFrame = uploadedPaths.firstFrame;
+    }
+    if (uploadedPaths.lastFrame) {
+      assetsPayload.lastFrame = uploadedPaths.lastFrame;
+    }
+    if (uploadedPaths.references.length > 0) {
+      assetsPayload.references = uploadedPaths.references;
+    }
+    if (Object.keys(assetsPayload).length > 0) {
+      payload.assets = assetsPayload;
+      const legacyPath =
+        uploadedPaths.primary ??
+        uploadedPaths.firstFrame ??
+        uploadedPaths.references[0] ??
+        uploadedPaths.lastFrame;
+      if (legacyPath) {
+        payload.assetPath = legacyPath;
+      }
+    }
+
+    if (modelConfig.aspectRatios && modelConfig.aspectRatios.length > 0) {
+      payload.aspectRatio = aspectRatio;
+    }
+    payload.provider = modelProvider;
 
     const response = await authFetch("/api/sora/jobs", {
       method: "POST",
@@ -955,17 +1330,7 @@ export default function Dashboard() {
     setMessageTone("neutral");
     setMessage(null);
     setFocusedJobId(jobId);
-    setPrompt("");
-    setFile(null);
-    const resetDuration = (providerConfig.durations as readonly number[])[0];
-    const resetAspect =
-      (providerConfig.aspectRatios as readonly AspectRatioOption[])[0];
-    setDuration(resetDuration);
-    setAspectRatio(resetAspect);
-    const uploadInput = document.getElementById(
-      "product-file",
-    ) as HTMLInputElement | null;
-    if (uploadInput) uploadInput.value = "";
+    resetFormState();
     setIsSubmitting(false);
     void Promise.all([refreshBalance(), refreshJobs()]);
   };
@@ -1427,12 +1792,12 @@ export default function Dashboard() {
                     PNG or JPG up to 10MB. We auto-crop and center in the video frame.
                   </p>
 
-                    <div className="mt-6 flex items-center gap-4">
+                  <div className="mt-6 flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border/50 bg-background/50">
                       {productPreviewUrl ? (
                         <Image
                           src={productPreviewUrl}
-                          alt="Selected product preview"
+                          alt="Selected asset preview"
                           width={64}
                           height={64}
                           unoptimized
@@ -1443,46 +1808,99 @@ export default function Dashboard() {
                       )}
                     </div>
                     <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>{file ? file.name : "No file selected"}</p>
-                      <p>
-                        {file
-                          ? `${Math.round(file.size / 1024)} KB`
-                          : "Drop a product mockup to get started."}
-                      </p>
+                      <p>{previewMeta ? previewMeta.name : "No asset selected"}</p>
+                      <p>{previewMeta ? previewMeta.sizeLabel : uploadPlaceholder}</p>
                     </div>
                   </div>
 
-                  <div className="mt-6 flex flex-wrap gap-3">
-                    <label
-                      htmlFor="product-file"
-                      className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      Upload image
-                      <input
-                        id="product-file"
-                        name="product-file"
-                        className="hidden"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUpload}
-                      />
-                    </label>
-                    {file ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFile(null);
-                          setProductPreviewUrl(null);
-                          const uploadInput = document.getElementById("product-file") as HTMLInputElement | null;
-                          if (uploadInput) uploadInput.value = "";
-                        }}
-                        aria-label="Remove product image"
-                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Remove
-                      </button>
-                    ) : null}
+                  <div className="mt-6 space-y-4">
+                    {assetMode === "single" && (
+                      <div className="flex flex-wrap gap-3">
+                        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                          Upload image
+                          <input
+                            ref={primaryInputRef}
+                            key={`primary-${assetUploadKey}`}
+                            className="hidden"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSingleAssetChange("primary")}
+                          />
+                        </label>
+                        {assetUploads.primary ? (
+                          <button
+                            type="button"
+                            onClick={() => clearAsset("primary")}
+                            aria-label="Remove product image"
+                            className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {assetMode === "first_last" && (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {renderFrameUpload(
+                          "firstFrame",
+                          "First frame",
+                          assetUploads.firstFrame,
+                          firstFrameInputRef,
+                        )}
+                        {renderFrameUpload(
+                          "lastFrame",
+                          "Last frame",
+                          assetUploads.lastFrame,
+                          lastFrameInputRef,
+                        )}
+                      </div>
+                    )}
+
+                    {assetMode === "references" && (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap gap-3">
+                          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                            Add references
+                            <input
+                              ref={referencesInputRef}
+                              key={`references-${assetUploadKey}`}
+                              className="hidden"
+                              type="file"
+                              multiple
+                              accept="image/*"
+                              onChange={handleReferencesChange}
+                            />
+                          </label>
+                        </div>
+                        {assetUploads.references.length > 0 && (
+                          <ul className="flex flex-wrap gap-2">
+                            {assetUploads.references.map((reference, index) => (
+                              <li
+                                key={`${reference.name}-${index}`}
+                                className="flex items-center gap-2 rounded-full border border-border/60 bg-secondary/30 px-3 py-1.5 text-xs text-foreground"
+                              >
+                                <span className="max-w-[140px] truncate">
+                                  {reference.name}
+                                </span>
+                                <span className="text-muted-foreground">
+                                  · {formatSizeKb(reference.size)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeReferenceAt(index)}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  aria-label={`Remove reference ${index + 1}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1509,40 +1927,10 @@ export default function Dashboard() {
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                      Provider
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {PROVIDER_ORDER.map((key) => {
-                        const option = PROVIDER_CONFIG[key];
-                        const isActive = provider === key;
-                        return (
-                          <button
-                            type="button"
-                            key={option.value}
-                            onClick={() => setProvider(key)}
-                            aria-pressed={isActive}
-                            className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                              isActive
-                                ? "border-primary/70 bg-primary/15 text-primary"
-                                : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
-                            }`}
-                          >
-                            <span>{option.label}</span>
-                            <span className="text-[10px] font-normal text-muted-foreground">
-                              {option.helper}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
                       Model
                     </p>
                     <div className="grid grid-cols-2 gap-3">
-                        {MODEL_OPTIONS.map((option) => {
+                      {MODEL_OPTIONS.map((option) => {
                           const isActive = model === option.value;
                           return (
                             <button
@@ -1565,7 +1953,7 @@ export default function Dashboard() {
                         })}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Each Sora run consumes {creditCostPerRun} credits.
+                        Each run consumes {creditCostPerRun} credits.
                       </p>
                     </div>
 
@@ -1575,7 +1963,7 @@ export default function Dashboard() {
                           Duration
                         </p>
                         <div className="grid grid-cols-3 gap-2">
-                          {(providerConfig.durations as readonly number[]).map((option) => {
+                          {modelConfig.durations.map((option) => {
                             const isActive = duration === option;
                             return (
                               <button
@@ -1596,31 +1984,33 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                          Aspect ratio
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {(providerConfig.aspectRatios as readonly AspectRatioOption[]).map((option) => {
-                            const isActive = aspectRatio === option;
-                            return (
-                              <button
-                                type="button"
-                                key={option}
-                                onClick={() => setAspectRatio(option)}
-                                aria-pressed={isActive}
-                                className={`flex flex-col items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                                  isActive
-                                    ? "border-primary/70 bg-primary/15 text-primary"
-                                    : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
-                                }`}
-                              >
-                                <span>{option}</span>
-                              </button>
-                            );
-                          })}
+                      {aspectRatioOptions.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                            Aspect ratio
+                          </p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {aspectRatioOptions.map((option) => {
+                              const isActive = aspectRatio === option;
+                              return (
+                                <button
+                                  type="button"
+                                  key={option}
+                                  onClick={() => setAspectRatio(option)}
+                                  aria-pressed={isActive}
+                                  className={`flex flex-col items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                    isActive
+                                      ? "border-primary/70 bg-primary/15 text-primary"
+                                      : "border border-border/70 bg-secondary/50 text-muted-foreground hover:border-border hover:text-foreground"
+                                  }`}
+                                >
+                                  <span>{option}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border/60 pt-4">

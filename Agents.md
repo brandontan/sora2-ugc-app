@@ -10,9 +10,11 @@
 - Automated tests use Playwright (see `frontend/tests`).
 
 ## Current Priorities
-1. Schedule `/api/sora/poller?limit=5` cron with `ADMIN_DASHBOARD_TOKEN` (WaveSpeed + Fal)
+1. Monitor Fal webhook deliveries for `/api/provider/fal/webhook` and keep fallback poller disabled unless needed
 2. Finish `/admin/jobs` telemetry view (jobs table + provider timeline) plus evidence
 3. Resolve provider gaps: Fal jobs stuck `IN_QUEUE`; Replicate Sora blocked until OpenAI org verified
+4. Roll v0 storyboard + dynamic asset flow into upcoming spec-kit update
+5. Capture documentation for model-specific asset requirements in dashboard/API
 
 ## Useful Paths
 - Mock/test helpers: `frontend/src/lib/`

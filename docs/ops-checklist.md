@@ -1,18 +1,17 @@
 # Operations Checklist
 
-## Poller Cron
-- Workflow: `.github/workflows/poller-cron.yml` (5-minute cadence).
+## Poller (Fallback Only)
+- Workflow: `.github/workflows/poller-cron.yml` — schedule removed; trigger manually only when webhook delivery is impaired.
 - Required secret: `CRON_SECRET` (same value as Vercel env `CRON_SECRET`).
-- Health check: monitor workflow success logs; failures should alert via GitHub notifications.
-- Manual run: use workflow_dispatch to trigger immediately after secret rotation.
+- Health check: manual invocations should return HTTP 200; log failures in handoff.
 
-## Provider Health
-- Fal + WaveSpeed status surfaced in dashboard tray.
+- Fal webhook endpoint (`/api/provider/fal/webhook`) updates jobs in real time.
 - Monitor `/admin/jobs` telemetry for stuck statuses (`IN_QUEUE`, `processing > 10m`).
 - Recovery playbook:
-  1. Hit `/api/sora/poller?limit=5` manually with admin token to force refresh.
-  2. If provider stuck, cancel via `/api/sora/jobs/{id}` (needs admin token) to refund credits.
-  3. Log incident in handoff with provider response payloads.
+  1. Check Vercel logs for webhook errors and replay from Fal dashboard if available.
+  2. If webhook delivery fails, trigger `/api/sora/poller?limit=5` manually with admin token as fallback.
+  3. If provider stuck, cancel via `/api/sora/jobs/{id}` (needs admin token) to refund credits.
+  4. Log incident in handoff with provider response payloads.
 - Add fallback provider once Replicate org unblock; track in roadmap.
 
 ## Auditor Runs
@@ -32,6 +31,6 @@
 - Spot-check Stripe audit tables: `select count(*) from stripe_checkout_sessions;` to ensure logging is active.
 
 ## Secrets Rotation
-- Vercel env vars: `ADMIN_DASHBOARD_TOKEN`, `CRON_SECRET`, `FAL_KEY`, `WAVESPEED_API_KEY`.
-- GitHub secrets: `CRON_SECRET` (for cron workflow), add Fal/WaveSpeed keys if future workflows need them.
+- Vercel env vars: `ADMIN_DASHBOARD_TOKEN`, `CRON_SECRET`, `FAL_KEY`.
+- GitHub secrets: `CRON_SECRET` (for cron workflow), add Fal key if future workflows need it.
 - Rotation cadence: monthly or after any suspected compromise; update workflow + redeploy.
