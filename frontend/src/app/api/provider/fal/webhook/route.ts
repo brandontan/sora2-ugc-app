@@ -30,6 +30,7 @@ type JobRow = {
   video_url: string | null;
   credit_cost: number;
   provider_error: string | null;
+  provider?: string | null;
 };
 
 const parseQueuePosition = (value: unknown): number | null => {
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
   const supabase = getServiceClient();
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("id, user_id, status, video_url, credit_cost, provider_error")
+    .select("id, user_id, status, video_url, credit_cost, provider_error, provider")
     .eq("provider_job_id", requestId)
     .maybeSingle<JobRow>();
 
@@ -216,6 +217,17 @@ export async function POST(request: NextRequest) {
     canonicalStatus,
     hasAsset: Boolean(asset),
   });
+  try {
+    await supabase.from("job_webhooks").insert({
+      job_id: job?.id ?? null,
+      provider_job_id: requestId,
+      provider: job?.provider ?? "fal",
+      status: providerStatus ?? null,
+      payload: payload as Record<string, unknown>,
+    });
+  } catch (logError) {
+    console.warn("[fal-webhook] failed to log webhook", logError);
+  }
   const baseUpdate = {
     provider_status: providerStatus ?? null,
     queue_position: canonicalStatus === "processing" || canonicalStatus === "queued"
