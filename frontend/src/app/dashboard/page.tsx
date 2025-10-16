@@ -360,6 +360,7 @@ export default function Dashboard() {
     undefined,
   );
   const [jobAspectRatios, setJobAspectRatios] = useState<Record<string, VideoAspectKind>>({});
+  const [trayTab, setTrayTab] = useState<"active" | "history">("active");
   const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -634,6 +635,34 @@ export default function Dashboard() {
     [jobs, isJobDismissed],
   );
 
+  const dedupeJobs = useCallback((items: Job[]) => {
+    const seen = new Set<string>();
+    const result: Job[] = [];
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      result.push(item);
+    }
+    return result;
+  }, []);
+
+  const activeTrayJobs = useMemo(
+    () => dedupeJobs(trayJobs.filter((job) => !isFinalStatus(job.status))),
+    [trayJobs, dedupeJobs],
+  );
+
+  const historyTrayJobs = useMemo(
+    () => dedupeJobs(trayJobs.filter((job) => isFinalStatus(job.status))),
+    [trayJobs, dedupeJobs],
+  );
+
+  const totalTrayJobs = activeTrayJobs.length + historyTrayJobs.length;
+
+  const displayTrayJobs = useMemo(
+    () => (trayTab === "history" ? historyTrayJobs : activeTrayJobs),
+    [trayTab, activeTrayJobs, historyTrayJobs],
+  );
+
   useEffect(() => {
     if (focusedJobId && !jobs.some((job) => job.id === focusedJobId)) {
       setFocusedJobId(undefined);
@@ -642,27 +671,16 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (focusedJobId !== undefined) return;
-    const nextJob = trayJobs[0] ?? null;
+    const nextJob = activeTrayJobs[0] ?? null;
     setFocusedJobId(nextJob ? nextJob.id : null);
-  }, [focusedJobId, trayJobs]);
+  }, [focusedJobId, activeTrayJobs]);
 
   const featuredJob = useMemo(() => {
     if (!focusedJobId) return null;
     return jobs.find((job) => job.id === focusedJobId) ?? null;
   }, [focusedJobId, jobs]);
 
-  const jobTrayItems = useMemo(() => {
-    const prioritized = [...trayJobs];
-    const seen = new Set<string>();
-    const result: Job[] = [];
-    for (const job of prioritized) {
-      if (seen.has(job.id)) continue;
-      seen.add(job.id);
-      result.push(job);
-      if (result.length >= 6) break;
-    }
-    return result;
-  }, [trayJobs]);
+  const jobTrayItems = useMemo(() => displayTrayJobs, [displayTrayJobs]);
 
   const handleClearAllJobs = useCallback(() => {
     if (trayJobs.length === 0) return;
@@ -1596,6 +1614,9 @@ export default function Dashboard() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     Charged on submit • Auto refund if job fails • {perRunLabel}
                   </p>
+                  <p className="text-xs text-muted-foreground">
+                    Runs may take up to an hour • Cancelling forfeits the credits for that run
+                  </p>
                 </div>
               </div>
 
@@ -1709,236 +1730,372 @@ export default function Dashboard() {
                 </div>
               ) : null}
 
-              {jobTrayItems.length > 0 ? (
+              {totalTrayJobs > 0 ? (
                 <div className="mt-6">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
                       Job tray
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleClearAllJobs}
-                      className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-3">
-                    {jobTrayItems.map((job) => {
-                      const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
-                      const canonicalStatus = normalizeStatus(job.status);
-                      const isCompleted = canonicalStatus === "completed";
-                      const jobFinal = isFinalStatus(job.status);
-                      const jobCancelling = Boolean(cancellingJobIds[job.id]);
-                      const jobDownloading = Boolean(downloadingJobIds[job.id]);
-                      const jobProviderSummary = describeProviderState(job);
-                      const statusLabel =
-                        STATUS_DISPLAY_LABELS[canonicalStatus] ??
-                        job.status.replace(/_/g, " ");
-                      const modelLabel = modelLabelForKey(job.model_key, job.provider);
-                      const startedAtLabel = formatDateTime(job.created_at);
-                      const completedAtLabel =
-                        jobFinal && (job.updated_at ?? null)
-                          ? formatDateTime(job.updated_at ?? job.created_at)
-                          : null;
-                      const elapsedLabel =
-                        jobFinal && (job.updated_at ?? null)
-                          ? formatElapsedDuration(job.created_at, job.updated_at ?? job.created_at)
-                          : null;
-                      const cardWidthClass = "sm:w-72";
-                      const cardBorderClass = isFocused
-                        ? "border-primary/60 shadow-primary/20"
-                        : "border-border/70";
-                      const cardBgClass = "bg-secondary/40 hover:bg-secondary/50 transition";
-
-                      const handlePreview = () => {
-                        setFocusedJobId(job.id);
-                      };
-
-                      const handleClearJob = () => {
-                        setDismissedJobIds((prev) => {
-                          const next = new Set(prev);
-                          next.add(job.id);
-                          return next;
-                        });
-                        if (focusedJobId === job.id) {
-                          setFocusedJobId(null);
-                        }
-                      };
-
-                      return (
-                        <div
-                          key={job.id}
-                          onClick={() => setFocusedJobId(job.id)}
-                          className={`flex w-full cursor-pointer flex-col gap-3 rounded-2xl border ${cardBgClass} ${cardBorderClass} ${cardWidthClass} p-4 text-left shadow-sm`}
+                    <div className="inline-flex items-center gap-2">
+                      <div className="inline-flex rounded-full border border-border/60 bg-background/60 p-1 text-xs font-semibold uppercase tracking-[0.2em]">
+                        <button
+                          type="button"
+                          onClick={() => setTrayTab("active")}
+                          className={`rounded-full px-3 py-1 transition ${
+                            trayTab === "active"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            {(() => {
-                              const variant: "success" | "processing" | "error" | "muted" =
-                                canonicalStatus === "completed"
-                                  ? "success"
-                                  : canonicalStatus === "processing" || canonicalStatus === "queued"
-                                    ? "processing"
-                                    : canonicalStatus === "failed"
-                                      ? "error"
-                                      : "muted";
-                              const variantStyles: Record<
-                                "success" | "processing" | "error" | "muted",
-                                { bg: string; text: string; icon: ElementType }
-                              > = {
-                                success: {
-                                  bg: "bg-emerald-500/20",
-                                  text: "text-emerald-300",
-                                  icon: CheckCircle2,
-                                },
-                                processing: {
-                                  bg: "bg-amber-500/20",
-                                  text: "text-amber-300",
-                                  icon: Loader2,
-                                },
-                                error: {
-                                  bg: "bg-rose-500/20",
-                                  text: "text-rose-200",
-                                  icon: XCircle,
-                                },
-                                muted: {
-                                  bg: "bg-border/40",
-                                  text: "text-muted-foreground",
-                                  icon: MinusCircle,
-                                },
-                              };
-                              const styles = variantStyles[variant];
-                              const StatusIcon = styles.icon;
-                              return (
-                                <span
-                                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[0.65rem] font-medium uppercase tracking-[0.2em] ${styles.bg} ${styles.text}`}
-                                >
-                                  <StatusIcon
-                                    className={`h-3 w-3 ${variant === "processing" ? "animate-spin" : ""}`}
-                                  />
-                                  {statusLabel}
-                                </span>
-                              );
-                            })()}
-                            <span className="text-xs text-muted-foreground">
-                              {formatRelativeTime(job.created_at)}
-                            </span>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                          Active ({activeTrayJobs.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTrayTab("history")}
+                          className={`rounded-full px-3 py-1 transition ${
+                            trayTab === "history"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          History ({historyTrayJobs.length})
+                        </button>
+                      </div>
+                      {trayTab === "history" && historyTrayJobs.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={handleClearAllJobs}
+                          className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+                        >
+                          Clear history
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                    {jobTrayItems.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {trayTab === "history"
+                          ? "No completed jobs yet."
+                          : "No active jobs in the queue."}
+                      </p>
+                    ) : trayTab === "history" ? (
+                      jobTrayItems.map((job) => {
+                        const canonicalStatus = normalizeStatus(job.status);
+                        const jobProviderSummary = describeProviderState(job);
+                        const modelLabel = modelLabelForKey(job.model_key, job.provider);
+                        const startedAtLabel = formatDateTime(job.created_at);
+                        const completedAtLabel =
+                          job.updated_at ?? job.created_at
+                            ? formatDateTime(job.updated_at ?? job.created_at)
+                            : null;
+                        const elapsedLabel =
+                          job.updated_at ?? null
+                            ? formatElapsedDuration(
+                                job.created_at,
+                                job.updated_at ?? job.created_at,
+                              )
+                            : null;
+                        const isCompleted = canonicalStatus === "completed";
+                        const isFailed = canonicalStatus === "failed";
+
+                        const handleClearJob = () => {
+                          setDismissedJobIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(job.id);
+                            return next;
+                          });
+                          if (focusedJobId === job.id) {
+                            setFocusedJobId(null);
+                          }
+                        };
+
+                        return (
+                          <div
+                            key={job.id}
+                            className="flex items-center justify-between rounded-2xl border border-border/70 bg-secondary/30 px-4 py-3 text-xs shadow-sm hover:bg-secondary/40"
+                          >
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                                 {modelLabel}
                               </span>
-                              {startedAtLabel ? (
+                              <span className="text-sm font-semibold text-foreground line-clamp-1">
+                                {job.prompt}
+                              </span>
+                              <span className="text-[0.65rem] text-muted-foreground">
+                                {completedAtLabel
+                                  ? `Completed ${completedAtLabel}${
+                                      elapsedLabel ? ` • ${elapsedLabel}` : ""
+                                    }`
+                                  : startedAtLabel
+                                    ? `Started ${startedAtLabel}`
+                                    : null}
+                              </span>
+                              {jobProviderSummary ? (
                                 <span className="text-[0.65rem] text-muted-foreground">
-                                  Started {startedAtLabel}
+                                  {jobProviderSummary}
                                 </span>
                               ) : null}
-                              {completedAtLabel ? (
-                                <span className="text-[0.65rem] text-muted-foreground">
-                                  {`Completed ${completedAtLabel}${elapsedLabel ? ` • ${elapsedLabel}` : ""}`}
+                              {isFailed ? (
+                                <span className="text-[0.65rem] text-rose-300">
+                                  Credits refunded (+{job.credit_cost})
                                 </span>
                               ) : null}
                             </div>
-                            <p className="text-sm font-semibold text-foreground line-clamp-2">
-                              {job.prompt}
-                            </p>
-                            {jobProviderSummary ? (
-                              <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
-                            ) : null}
+                            <div className="flex flex-shrink-0 items-center gap-2">
+                              {isCompleted && job.video_url ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedJobId(job.id)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  >
+                                    Preview
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDownloadJob(job)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  >
+                                    Download
+                                  </button>
+                                </>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={handleClearJob}
+                                className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-                            {isCompleted && job.video_url ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handlePreview();
-                                  }}
-                                  className={`inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium transition hover:border-border hover:text-foreground ${
-                                    isFocused ? "text-primary" : "text-muted-foreground"
-                                  }`}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                  {isFocused ? "Viewing" : "Preview"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleDownloadJob(job);
-                                  }}
-                                  disabled={jobDownloading}
-                                  aria-label="Download video"
-                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {jobDownloading ? (
-                                    <>
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                      Downloading…
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Download className="h-4 w-4" />
-                                      Download
-                                    </>
-                                  )}
-                                </button>
+                        );
+                      })
+                    ) : (
+                      jobTrayItems.map((job) => {
+                        const isFocused = featuredJob?.id === job.id && focusedJobId !== null;
+                        const canonicalStatus = normalizeStatus(job.status);
+                        const isCompleted = canonicalStatus === "completed";
+                        const jobFinal = isFinalStatus(job.status);
+                        const jobCancelling = Boolean(cancellingJobIds[job.id]);
+                        const jobDownloading = Boolean(downloadingJobIds[job.id]);
+                        const jobProviderSummary = describeProviderState(job);
+                        const statusLabel =
+                          STATUS_DISPLAY_LABELS[canonicalStatus] ??
+                          job.status.replace(/_/g, " ");
+                        const modelLabel = modelLabelForKey(job.model_key, job.provider);
+                        const startedAtLabel = formatDateTime(job.created_at);
+                        const completedAtLabel =
+                          jobFinal && (job.updated_at ?? null)
+                            ? formatDateTime(job.updated_at ?? job.created_at)
+                            : null;
+                        const elapsedLabel =
+                          jobFinal && (job.updated_at ?? null)
+                            ? formatElapsedDuration(
+                                job.created_at,
+                                job.updated_at ?? job.created_at,
+                              )
+                            : null;
+                        const cardBorderClass = isFocused
+                          ? "border-primary/60 shadow-primary/20"
+                          : "border-border/70";
+                        const cardBgClass = "bg-secondary/40 hover:bg-secondary/50 transition";
+
+                        const handlePreview = () => {
+                          setFocusedJobId(job.id);
+                        };
+
+                        const handleClearJob = () => {
+                          setDismissedJobIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(job.id);
+                            return next;
+                          });
+                          if (focusedJobId === job.id) {
+                            setFocusedJobId(null);
+                          }
+                        };
+
+                        return (
+                          <div
+                            key={job.id}
+                            onClick={() => setFocusedJobId(job.id)}
+                            className={`flex w-full cursor-pointer flex-col gap-3 rounded-2xl border ${cardBgClass} ${cardBorderClass} p-4 text-left shadow-sm`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              {(() => {
+                                const variant: "success" | "processing" | "error" | "muted" =
+                                  canonicalStatus === "completed"
+                                    ? "success"
+                                    : canonicalStatus === "processing" || canonicalStatus === "queued"
+                                      ? "processing"
+                                      : canonicalStatus === "failed"
+                                        ? "error"
+                                        : "muted";
+                                const variantStyles: Record<
+                                  "success" | "processing" | "error" | "muted",
+                                  { bg: string; text: string; icon: ElementType }
+                                > = {
+                                  success: {
+                                    bg: "bg-emerald-500/20",
+                                    text: "text-emerald-300",
+                                    icon: CheckCircle2,
+                                  },
+                                  processing: {
+                                    bg: "bg-amber-500/20",
+                                    text: "text-amber-300",
+                                    icon: Loader2,
+                                  },
+                                  error: {
+                                    bg: "bg-rose-500/20",
+                                    text: "text-rose-200",
+                                    icon: XCircle,
+                                  },
+                                  muted: {
+                                    bg: "bg-border/40",
+                                    text: "text-muted-foreground",
+                                    icon: MinusCircle,
+                                  },
+                                };
+                                const styles = variantStyles[variant];
+                                const StatusIcon = styles.icon;
+                                return (
+                                  <span
+                                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[0.65rem] font-medium uppercase tracking-[0.2em] ${styles.bg} ${styles.text}`}
+                                  >
+                                    <StatusIcon
+                                      className={`h-3 w-3 ${variant === "processing" ? "animate-spin" : ""}`}
+                                    />
+                                    {statusLabel}
+                                  </span>
+                                );
+                              })()}
+                              <span className="text-xs text-muted-foreground">
+                                {formatRelativeTime(job.created_at)}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                  {modelLabel}
+                                </span>
+                                {startedAtLabel ? (
+                                  <span className="text-[0.65rem] text-muted-foreground">
+                                    Started {startedAtLabel}
+                                  </span>
+                                ) : null}
+                                {completedAtLabel ? (
+                                  <span className="text-[0.65rem] text-muted-foreground">
+                                    {`Completed ${completedAtLabel}${elapsedLabel ? ` • ${elapsedLabel}` : ""}`}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="text-sm font-semibold text-foreground line-clamp-2">
+                                {job.prompt}
+                              </p>
+                              {jobProviderSummary ? (
+                                <p className="text-[0.65rem] text-muted-foreground">{jobProviderSummary}</p>
+                              ) : null}
+                              {canonicalStatus === "failed" ? (
+                                <p className="text-[0.65rem] text-rose-300">
+                                  Credits refunded (+{job.credit_cost})
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                              {isCompleted && job.video_url ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handlePreview();
+                                    }}
+                                    className={`inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium transition hover:border-border hover:text-foreground ${
+                                      isFocused ? "text-primary" : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    {isFocused ? "Viewing" : "Preview"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleDownloadJob(job);
+                                    }}
+                                    disabled={jobDownloading}
+                                    aria-label="Download video"
+                                    className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {jobDownloading ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Downloading…
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="h-4 w-4" />
+                                        Download
+                                      </>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleClearJob();
+                                    }}
+                                    aria-label="Dismiss job"
+                                    className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Dismiss
+                                  </button>
+                                </>
+                              ) : null}
+                              {jobFinal && !isCompleted ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleClearJob();
                                   }}
-                                  aria-label="Dismiss job"
                                   className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                   Dismiss
                                 </button>
-                              </>
-                            ) : null}
-                            {jobFinal && !isCompleted ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleClearJob();
-                                }}
-                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                Dismiss
-                              </button>
-                            ) : null}
-                            {!jobFinal ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleCancelJob(job.id);
-                                }}
-                                disabled={jobCancelling}
-                                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {jobCancelling ? (
-                                  <>
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                    Cancelling
-                                  </>
-                                ) : (
-                                  <>
-                                    <X className="h-4 w-4" />
-                                    Cancel
-                                  </>
-                                )}
-                              </button>
-                            ) : null}
+                              ) : null}
+                              {!jobFinal ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleCancelJob(job.id);
+                                  }}
+                                  disabled={jobCancelling}
+                                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {jobCancelling ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      Cancelling
+                                    </>
+                                  ) : (
+                                    <>
+                                      <X className="h-4 w-4" />
+                                      Cancel
+                                    </>
+                                  )}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -2237,7 +2394,26 @@ export default function Dashboard() {
           </form>
         </section>
 
-        
+        <footer className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>Need help? Hop into our Discord.</span>
+          <a
+            href="https://discord.gg/j7suXuYEnB"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/60 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground transition hover:border-border hover:text-foreground"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="h-4 w-4"
+            >
+              <path d="M20.317 4.369A19.791 19.791 0 0 0 16.885 3a13.227 13.227 0 0 0-.651 1.321 18.626 18.626 0 0 0-5.468 0A12.36 12.36 0 0 0 10.115 3a19.736 19.736 0 0 0-3.433 1.371C3.555 9.112 2.82 13.645 3.134 18.128a19.993 19.993 0 0 0 4.106 2.1 14.63 14.63 0 0 0 .878-1.427 12.925 12.925 0 0 1-1.388-.663c.117-.086.232-.175.342-.268 2.7 1.257 5.64 1.257 8.317 0 .111.093.226.182.342.268a12.7 12.7 0 0 1-1.396.67c.26.5.554.98.878 1.432a19.872 19.872 0 0 0 4.115-2.108c.337-4.89-.576-9.384-2.931-13.759ZM9.36 15.68c-1.023 0-1.871-.94-1.871-2.095s.82-2.095 1.871-2.095c1.05 0 1.897.94 1.871 2.095 0 1.155-.82 2.095-1.871 2.095Zm5.318 0c-1.023 0-1.871-.94-1.871-2.095s.82-2.095 1.871-2.095c1.05 0 1.897.94 1.871 2.095 0 1.155-.82 2.095-1.871 2.095Z" />
+            </svg>
+            Discord Support
+          </a>
+        </footer>
+
       </main>
     </div>
   );
