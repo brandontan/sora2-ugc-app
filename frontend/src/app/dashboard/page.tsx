@@ -1372,6 +1372,17 @@ export default function Dashboard() {
             Remove
           </button>
         ) : null}
+        {file ? (
+          <button
+            type="button"
+            onClick={() => setPreviewAsset({ type: key })}
+            aria-label={`Preview ${label.toLowerCase()}`}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-border/70 px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
+          >
+            <Eye className="h-4 w-4" />
+            Preview
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -2276,7 +2287,15 @@ export default function Dashboard() {
                                   aria-label={`Remove reference ${index + 1}`}
                                 >
                                   <X className="h-3 w-3" />
-                                </button>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewAsset({ type: "reference", index })}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 text-muted-foreground transition hover:border-border hover:text-foreground"
+                                    aria-label={`Preview reference ${index + 1}`}
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                  </button>
                               </li>
                             ))}
                           </ul>
