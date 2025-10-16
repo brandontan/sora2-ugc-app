@@ -141,6 +141,7 @@ const mapToCanonicalStatus = (
   switch (normalizeStatus(status)) {
     case "completed":
     case "success":
+    case "ok":
       return "completed";
     case "failed":
     case "error":
