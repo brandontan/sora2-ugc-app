@@ -618,18 +618,22 @@ export default function Dashboard() {
     });
 
     if (supabase && session?.user?.id) {
-      void supabase
+      const client = supabase as SupabaseClient;
+      const updatePromise = client
         .from("profiles")
         .update({ job_tray_cleared_before: nowIso })
-        .eq("id", session.user.id)
-        .then((result) => {
+        .eq("id", session.user.id);
+
+      updatePromise.then(
+        (result) => {
           if (result.error) {
             console.warn("dashboard: failed to persist job tray clear", result.error);
           }
-        })
-        .catch((error) => {
+        },
+        (error) => {
           console.warn("dashboard: persist clear threw", error);
-        });
+        },
+      );
     }
   }, [trayJobs, supabase, session?.user?.id]);
 

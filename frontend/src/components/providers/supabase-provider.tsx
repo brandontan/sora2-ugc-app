@@ -394,6 +394,7 @@ function createMockSupabaseClient(
         display_name: generated.displayName,
         avatar_seed: generated.avatarSeed,
         avatar_style: generated.avatarStyle,
+        job_tray_cleared_before: null,
       };
     }
     return mockProfile;
@@ -406,6 +407,7 @@ function createMockSupabaseClient(
       display_name: template.displayName,
       avatar_seed: template.avatarSeed,
       avatar_style: template.avatarStyle,
+      job_tray_cleared_before: mockProfile?.job_tray_cleared_before ?? null,
     };
     const accessToken = createMockAccessToken();
     return {
@@ -517,6 +519,8 @@ function createMockSupabaseClient(
               display_name: (record?.display_name as string | undefined) ?? base.display_name,
               avatar_seed: (record?.avatar_seed as string | undefined) ?? base.avatar_seed,
               avatar_style: (record?.avatar_style as string | undefined) ?? base.avatar_style,
+              job_tray_cleared_before:
+                (record?.job_tray_cleared_before as string | undefined) ?? base.job_tray_cleared_before ?? null,
             };
             return {
               select() {
@@ -526,6 +530,36 @@ function createMockSupabaseClient(
                   },
                   async single() {
                     return { data: mockProfile, error: null };
+                  },
+                };
+              },
+            };
+          },
+          update(payload: Record<string, unknown>) {
+            return {
+              eq(_column: string, value: string) {
+                const apply = async () => {
+                  if (value !== userId) {
+                    return { data: null, error: null };
+                  }
+                  const base = ensureMockProfile(currentSession?.user?.email ?? null);
+                  mockProfile = {
+                    ...base,
+                    job_tray_cleared_before:
+                      (payload?.job_tray_cleared_before as string | undefined) ?? base.job_tray_cleared_before ?? null,
+                  };
+                  return { data: mockProfile, error: null };
+                };
+
+                return {
+                  then(onfulfilled: (value: { data: Profile | null; error: null }) => unknown, onrejected?: (reason: unknown) => unknown) {
+                    return apply().then(onfulfilled, onrejected);
+                  },
+                  catch(onrejected: (reason: unknown) => unknown) {
+                    return apply().catch(onrejected);
+                  },
+                  finally(onfinally: () => unknown) {
+                    return apply().finally(onfinally);
                   },
                 };
               },
