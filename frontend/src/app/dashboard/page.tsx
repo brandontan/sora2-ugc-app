@@ -541,8 +541,13 @@ export default function Dashboard() {
       if (
         isFinalStatus(job.status) &&
         hideCompletedBefore &&
-        job.updated_at &&
-        job.updated_at <= hideCompletedBefore
+        (() => {
+          const jobTimestamp = Date.parse(job.updated_at ?? job.created_at ?? "");
+          const hideTimestamp = Date.parse(hideCompletedBefore);
+          if (Number.isNaN(hideTimestamp)) return false;
+          if (Number.isNaN(jobTimestamp)) return false;
+          return jobTimestamp <= hideTimestamp;
+        })()
       ) {
         return true;
       }
