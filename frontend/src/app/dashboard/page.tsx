@@ -331,10 +331,6 @@ export default function Dashboard() {
     setMessageTone("neutral");
     setIsSubmitting(false);
     setCancellingJobIds({});
-    setHideCompletedBefore(null);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(HIDE_COMPLETED_BEFORE_STORAGE_KEY);
-    }
   }, []);
 
   const pricingSummary = useMemo(() => getPricingSummary(), []);
