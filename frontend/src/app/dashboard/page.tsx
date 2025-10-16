@@ -570,6 +570,28 @@ export default function Dashboard() {
     }
   }, [jobs, dismissedJobIds, dismissedJobsHydrated]);
 
+  const firstFramePreviewUrl = useMemo(() => {
+    if (!assetUploads.firstFrame) return null;
+    return URL.createObjectURL(assetUploads.firstFrame);
+  }, [assetUploads.firstFrame]);
+
+  useEffect(() => {
+    return () => {
+      if (firstFramePreviewUrl) URL.revokeObjectURL(firstFramePreviewUrl);
+    };
+  }, [firstFramePreviewUrl]);
+
+  const lastFramePreviewUrl = useMemo(() => {
+    if (!assetUploads.lastFrame) return null;
+    return URL.createObjectURL(assetUploads.lastFrame);
+  }, [assetUploads.lastFrame]);
+
+  useEffect(() => {
+    return () => {
+      if (lastFramePreviewUrl) URL.revokeObjectURL(lastFramePreviewUrl);
+    };
+  }, [lastFramePreviewUrl]);
+
   const previewSource = useMemo(() => {
     const resolveFile = (
       descriptor:
@@ -599,7 +621,7 @@ export default function Dashboard() {
       assetUploads.lastFrame ||
       null
     );
-  }, [previewAsset, assetUploads]);
+  }, [previewAsset, assetUploads.primary, assetUploads.firstFrame, assetUploads.lastFrame, assetUploads.references]);
 
   useEffect(() => {
     if (!previewSource) {
@@ -2248,6 +2270,54 @@ export default function Dashboard() {
                           assetUploads.lastFrame,
                           lastFrameInputRef,
                         )}
+                        {(assetUploads.firstFrame || assetUploads.lastFrame) && (
+                          <div className="sm:col-span-2 flex flex-wrap items-center gap-4">
+                            {assetUploads.firstFrame && firstFramePreviewUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAsset({ type: "firstFrame" })}
+                                className="inline-flex items-center gap-3 rounded-2xl border border-border/60 bg-secondary/30 px-4 py-3 text-left transition hover:border-border hover:text-foreground"
+                              >
+                                <div className="h-12 w-12 overflow-hidden rounded-xl border border-border/50 bg-background/60">
+                                  <Image
+                                    src={firstFramePreviewUrl}
+                                    alt="First frame preview"
+                                    width={48}
+                                    height={48}
+                                    unoptimized
+                                    className="h-full w-full object-cover"
+                                  />
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  <p className="font-semibold text-foreground">First frame</p>
+                                  <p>{abbreviateFilename(assetUploads.firstFrame.name)}</p>
+                                </div>
+                              </button>
+                            ) : null}
+                            {assetUploads.lastFrame && lastFramePreviewUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAsset({ type: "lastFrame" })}
+                                className="inline-flex items-center gap-3 rounded-2xl border border-border/60 bg-secondary/30 px-4 py-3 text-left transition hover:border-border hover:text-foreground"
+                              >
+                                <div className="h-12 w-12 overflow-hidden rounded-xl border border-border/50 bg-background/60">
+                                  <Image
+                                    src={lastFramePreviewUrl}
+                                    alt="Last frame preview"
+                                    width={48}
+                                    height={48}
+                                    unoptimized
+                                    className="h-full w-full object-cover"
+                                  />
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  <p className="font-semibold text-foreground">Last frame</p>
+                                  <p>{abbreviateFilename(assetUploads.lastFrame.name)}</p>
+                                </div>
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2287,15 +2357,15 @@ export default function Dashboard() {
                                   aria-label={`Remove reference ${index + 1}`}
                                 >
                                   <X className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewAsset({ type: "reference", index })}
-                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 text-muted-foreground transition hover:border-border hover:text-foreground"
-                                    aria-label={`Preview reference ${index + 1}`}
-                                  >
-                                    <Eye className="h-3 w-3" />
-                                  </button>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewAsset({ type: "reference", index })}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 text-muted-foreground transition hover:border-border hover:text-foreground"
+                                  aria-label={`Preview reference ${index + 1}`}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </button>
                               </li>
                             ))}
                           </ul>
