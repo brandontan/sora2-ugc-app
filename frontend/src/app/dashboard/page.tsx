@@ -37,6 +37,7 @@ type Job = {
   updated_at: string | null;
   credit_cost: number;
   provider?: string | null;
+  model_key?: string | null;
   provider_status?: string | null;
   queue_position?: number | null;
   provider_error?: string | null;
@@ -56,6 +57,7 @@ const jobSchema = z.object({
   updated_at: z.string().nullable().optional(),
   credit_cost: z.number(),
   provider: z.string().nullable().optional(),
+  model_key: z.string().nullable().optional(),
   provider_status: z.string().nullable().optional(),
   queue_position: z.number().nullable().optional(),
   provider_error: z.string().nullable().optional(),
@@ -166,6 +168,50 @@ const DEFAULT_MODEL: ModelKey = MODEL_OPTIONS[0].value;
 const DEFAULT_ASPECT_RATIO: AspectRatioOption =
   MODEL_CONFIG[DEFAULT_MODEL].aspectRatios?.[0] ?? "16:9";
 type VideoAspectKind = "16:9" | "9:16" | "1:1";
+
+const modelLabelForKey = (
+  modelKey: string | null | undefined,
+  provider?: string | null,
+) => {
+  if (modelKey && modelKey in MODEL_CONFIG) {
+    return MODEL_CONFIG[modelKey as ModelKey]?.label ?? modelKey;
+  }
+  const normalizedProvider = provider?.toLowerCase();
+  if (normalizedProvider === "fal") {
+    return "Sora 2 — Image → Video";
+  }
+  if (normalizedProvider) {
+    return normalizedProvider === "openai" ? "OpenAI" : provider ?? "Unknown";
+  }
+  return "Unknown model";
+};
+
+const formatElapsedDuration = (
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+) => {
+  if (!startIso || !endIso) return null;
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return null;
+  const diffSeconds = Math.round((end - start) / 1000);
+  if (diffSeconds < 60) {
+    return `${diffSeconds}s`;
+  }
+  const minutes = Math.floor(diffSeconds / 60);
+  const seconds = diffSeconds % 60;
+  if (minutes < 60) {
+    return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) {
+    return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
+};
 
 const MAX_PROMPT_LENGTH = 2000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -315,6 +361,29 @@ export default function Dashboard() {
   );
   const [hideCompletedBefore, setHideCompletedBefore] = useState<string | null>(null);
   const [dismissedJobsHydrated, setDismissedJobsHydrated] = useState(false);
+  const locale = useMemo(
+    () => (typeof navigator !== "undefined" ? navigator.language : "en-US"),
+    [],
+  );
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+      }),
+    [locale],
+  );
+  const formatDateTime = useCallback(
+    (iso: string | null | undefined) => {
+      if (!iso) return null;
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return null;
+      return dateFormatter.format(date);
+    },
+    [dateFormatter],
+  );
   const resetFormState = useCallback(() => {
     console.log("[dashboard] resetFormState invoked");
     setPrompt("");
@@ -650,10 +719,27 @@ export default function Dashboard() {
         : "aspect-video max-w-5xl"
     : aspectRatio === "9:16"
       ? "aspect-[9/16] max-w-sm sm:max-w-md"
-      : aspectRatio === "1:1"
-        ? "aspect-square max-w-sm sm:max-w-md"
-        : "aspect-video max-w-5xl";
+    : aspectRatio === "1:1"
+      ? "aspect-square max-w-sm sm:max-w-md"
+      : "aspect-video max-w-5xl";
   const isFeaturedFinal = featuredJob ? isFinalStatus(featuredJob.status) : false;
+  const featuredModelLabel = featuredJob
+    ? modelLabelForKey(featuredJob.model_key, featuredJob.provider)
+    : null;
+  const featuredStartedLabel = featuredJob
+    ? formatDateTime(featuredJob.created_at)
+    : null;
+  const featuredCompletedLabel =
+    featuredJob && isFeaturedFinal
+      ? formatDateTime(featuredJob.updated_at ?? featuredJob.created_at)
+      : null;
+  const featuredElapsedLabel =
+    featuredJob && isFeaturedFinal
+      ? formatElapsedDuration(
+          featuredJob.created_at,
+          featuredJob.updated_at ?? featuredJob.created_at,
+        )
+      : null;
   const featuredVideoStatus = featuredCanonicalStatus
     ? isFeaturedFinal && featuredCanonicalStatus !== "completed"
       ? null
@@ -847,6 +933,10 @@ export default function Dashboard() {
       provider:
         typeof job.provider === "string"
           ? job.provider
+          : null,
+      model_key:
+        typeof job.model_key === "string"
+          ? job.model_key
           : null,
       provider_status:
         typeof job.provider_status === "string"
@@ -1570,6 +1660,21 @@ export default function Dashboard() {
                         Cancelling now keeps credits for this run.
                       </span>
                     ) : null}
+                    {featuredModelLabel ? (
+                      <span className="text-[0.65rem] uppercase tracking-[0.2em] text-muted-foreground">
+                        {featuredModelLabel}
+                      </span>
+                    ) : null}
+                    {featuredStartedLabel ? (
+                      <span className="text-[0.65rem] text-muted-foreground">
+                        Started {featuredStartedLabel}
+                      </span>
+                    ) : null}
+                    {featuredCompletedLabel ? (
+                      <span className="text-[0.65rem] text-muted-foreground">
+                        {`Completed ${featuredCompletedLabel}${featuredElapsedLabel ? ` • ${featuredElapsedLabel}` : ""}`}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -1626,6 +1731,16 @@ export default function Dashboard() {
                       const statusLabel =
                         STATUS_DISPLAY_LABELS[canonicalStatus] ??
                         job.status.replace(/_/g, " ");
+                      const modelLabel = modelLabelForKey(job.model_key, job.provider);
+                      const startedAtLabel = formatDateTime(job.created_at);
+                      const completedAtLabel =
+                        jobFinal && (job.updated_at ?? null)
+                          ? formatDateTime(job.updated_at ?? job.created_at)
+                          : null;
+                      const elapsedLabel =
+                        jobFinal && (job.updated_at ?? null)
+                          ? formatElapsedDuration(job.created_at, job.updated_at ?? job.created_at)
+                          : null;
                       const cardWidthClass = "sm:w-72";
                       const cardBorderClass = isFocused
                         ? "border-primary/60 shadow-primary/20"
@@ -1706,6 +1821,21 @@ export default function Dashboard() {
                             </span>
                           </div>
                           <div className="space-y-1">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                {modelLabel}
+                              </span>
+                              {startedAtLabel ? (
+                                <span className="text-[0.65rem] text-muted-foreground">
+                                  Started {startedAtLabel}
+                                </span>
+                              ) : null}
+                              {completedAtLabel ? (
+                                <span className="text-[0.65rem] text-muted-foreground">
+                                  {`Completed ${completedAtLabel}${elapsedLabel ? ` • ${elapsedLabel}` : ""}`}
+                                </span>
+                              ) : null}
+                            </div>
                             <p className="text-sm font-semibold text-foreground line-clamp-2">
                               {job.prompt}
                             </p>

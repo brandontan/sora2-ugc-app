@@ -6,6 +6,7 @@ export type JobRow = {
   provider_job_id: string | null;
   credit_cost: number;
   provider?: string | null;
+  model_key?: string | null;
   provider_status?: string | null;
   queue_position?: number | null;
   provider_error?: string | null;

@@ -16,6 +16,7 @@ type JobEntry = {
   provider_job_id: string | null;
   created_at: string;
   provider?: string | null;
+  model_key?: string | null;
   provider_status?: string | null;
   queue_position?: number | null;
   provider_error?: string | null;

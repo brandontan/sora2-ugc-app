@@ -77,6 +77,7 @@ create table if not exists public.jobs (
   prompt text not null,
   asset_path text not null,
   status text not null default 'queued',
+  model_key text,
   provider text not null default 'fal',
   provider_job_id text,
   video_url text,
@@ -98,6 +99,9 @@ alter table public.jobs
 
 alter table public.jobs
   add column if not exists provider_last_checked timestamptz;
+
+alter table public.jobs
+  add column if not exists model_key text;
 
 -- Auto-update updated_at on jobs
 create or replace function public.set_jobs_updated_at()

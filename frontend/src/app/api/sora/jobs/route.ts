@@ -289,6 +289,7 @@ export async function POST(request: NextRequest) {
       provider_job_id: providerId,
       created_at: createdAt,
       provider,
+      model_key: modelKey,
     });
 
     return NextResponse.json({
@@ -352,6 +353,7 @@ export async function POST(request: NextRequest) {
       provider_status: "completed",
       queue_position: null,
       provider_error: null,
+      model_key: modelKey,
     });
 
     return NextResponse.json({
@@ -448,7 +450,10 @@ export async function POST(request: NextRequest) {
       );
   }
 
-  await supabase.from("jobs").update({ provider }).eq("id", jobId);
+  await supabase
+    .from("jobs")
+    .update({ provider, model_key: modelKey })
+    .eq("id", jobId);
 
   const selectedDuration =
     typeof durationSeconds === "number"
@@ -467,7 +472,6 @@ export async function POST(request: NextRequest) {
       modelConfig: selectedModelConfig,
       assets: normalizedAssets,
       provider,
-      creditCost,
     });
   }
 
@@ -498,7 +502,6 @@ type LaunchFalParams = {
   modelConfig: ModelConfig;
   assets: AssetPaths;
   provider: ProviderValue;
-  creditCost: number;
 };
 
 async function launchFalJob({
@@ -512,7 +515,6 @@ async function launchFalJob({
   modelConfig,
   assets,
   provider,
-  creditCost,
 }: LaunchFalParams) {
   const falKey = process.env.FAL_KEY;
   if (!falKey) {
