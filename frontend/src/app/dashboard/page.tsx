@@ -321,10 +321,14 @@ const describeProviderState = (job: Job | null): string | null => {
       return providerError
         ? `Failed: ${providerError}`
         : "Failed";
+    case "ERROR":
+    case "CONTENT_POLICY_VIOLATION":
+    case "REJECTED":
+      return providerError ?? "Provider error";
     case "CANCELLATION_REQUESTED":
       return "Cancellation requested";
     default:
-      return job?.provider_status ?? null;
+      return providerError ?? job?.provider_status ?? null;
   }
 };
 
