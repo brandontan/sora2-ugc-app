@@ -10,6 +10,7 @@ type Profile = {
   display_name: string | null;
   avatar_seed: string | null;
   avatar_style: string | null;
+  job_tray_cleared_before: string | null;
 };
 
 type SupabaseContextValue = {
@@ -74,7 +75,7 @@ export function SupabaseProvider({
 
       const { data: existing, error } = await client
         .from("profiles")
-        .select("id, display_name, avatar_seed, avatar_style")
+        .select("id, display_name, avatar_seed, avatar_style, job_tray_cleared_before")
         .eq("id", userId)
         .maybeSingle();
 
@@ -96,6 +97,8 @@ export function SupabaseProvider({
               display_name: generated.displayName,
               avatar_seed: generated.avatarSeed,
               avatar_style: generated.avatarStyle,
+              job_tray_cleared_before:
+                existing?.job_tray_cleared_before ?? null,
             },
             { onConflict: "id" },
           )
@@ -121,12 +124,22 @@ export function SupabaseProvider({
               const payload = (await response.json()) as { profile?: Profile | GeneratedProfile };
               const ensured = payload.profile as Profile | undefined;
               setProfile(
-                ensured ?? {
-                  id: userId,
-                  display_name: generated.displayName,
-                  avatar_seed: generated.avatarSeed,
-                  avatar_style: generated.avatarStyle,
-                },
+                ensured
+                  ? {
+                      id: ensured.id,
+                      display_name: ensured.display_name,
+                      avatar_seed: ensured.avatar_seed,
+                      avatar_style: ensured.avatar_style,
+                      job_tray_cleared_before:
+                        ensured.job_tray_cleared_before ?? existing?.job_tray_cleared_before ?? null,
+                    }
+                  : {
+                      id: userId,
+                      display_name: generated.displayName,
+                      avatar_seed: generated.avatarSeed,
+                      avatar_style: generated.avatarStyle,
+                      job_tray_cleared_before: existing?.job_tray_cleared_before ?? null,
+                    },
               );
               return;
             }
@@ -140,10 +153,17 @@ export function SupabaseProvider({
             display_name: generated.displayName,
             avatar_seed: generated.avatarSeed,
             avatar_style: generated.avatarStyle,
+            job_tray_cleared_before: existing?.job_tray_cleared_before ?? null,
           },
         );
       } else {
-        setProfile(existing);
+        setProfile({
+          id: existing.id,
+          display_name: existing.display_name,
+          avatar_seed: existing.avatar_seed,
+          avatar_style: existing.avatar_style,
+          job_tray_cleared_before: existing.job_tray_cleared_before ?? null,
+        });
       }
     } catch (error) {
       console.warn("supabase-profile", error);

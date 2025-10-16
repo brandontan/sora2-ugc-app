@@ -450,6 +450,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!dismissedJobsHydrated) return;
+    const clearedAt = profile?.job_tray_cleared_before ?? null;
+    if (!clearedAt) return;
+    if (!hideCompletedBefore) {
+      setHideCompletedBefore(clearedAt);
+      return;
+    }
+    const current = Date.parse(hideCompletedBefore);
+    const profileValue = Date.parse(clearedAt);
+    if (Number.isNaN(profileValue)) return;
+    if (Number.isNaN(current) || profileValue > current) {
+      setHideCompletedBefore(clearedAt);
+    }
+  }, [dismissedJobsHydrated, hideCompletedBefore, profile?.job_tray_cleared_before]);
+
+  useEffect(() => {
+    if (!dismissedJobsHydrated) return;
     if (dismissedJobIds.size === 0) return;
     if (jobs.length === 0) return;
 
@@ -595,7 +611,22 @@ export default function Dashboard() {
       if (!current) return current;
       return removableSet.has(current) ? null : current;
     });
-  }, [trayJobs]);
+
+    if (supabase && session?.user?.id) {
+      void supabase
+        .from("profiles")
+        .update({ job_tray_cleared_before: nowIso })
+        .eq("id", session.user.id)
+        .then((result) => {
+          if (result.error) {
+            console.warn("dashboard: failed to persist job tray clear", result.error);
+          }
+        })
+        .catch((error) => {
+          console.warn("dashboard: persist clear threw", error);
+        });
+    }
+  }, [trayJobs, supabase, session?.user?.id]);
 
   const featuredVideoUrl = featuredJob?.video_url ?? null;
   const featuredJobAspect = featuredJob ? jobAspectRatios[featuredJob.id] ?? null : null;

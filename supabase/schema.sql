@@ -20,6 +20,9 @@ alter table public.profiles
 alter table public.profiles
   add column if not exists updated_at timestamptz default timezone('utc', now());
 
+alter table public.profiles
+  add column if not exists job_tray_cleared_before timestamptz;
+
 create or replace function public.set_profiles_updated_at()
 returns trigger
 language plpgsql
