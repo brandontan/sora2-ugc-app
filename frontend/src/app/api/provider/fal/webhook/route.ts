@@ -210,7 +210,15 @@ export async function POST(request: NextRequest) {
   const providerStatus =
     payload.status ?? payload.state ?? payload.phase ?? null;
   const canonicalStatus = mapToCanonicalStatus(providerStatus);
-  const asset = findVideoUrl(payload) ?? findVideoUrl(payload.output ?? undefined);
+  const asset =
+    findVideoUrl(payload) ??
+    findVideoUrl(payload.output ?? undefined) ??
+    ("payload" in payload && payload.payload && typeof payload.payload === "object"
+      ? findVideoUrl(payload.payload as Record<string, unknown>)
+      : null) ??
+    (payload.response && typeof payload.response === "object"
+      ? findVideoUrl(payload.response as Record<string, unknown>)
+      : null);
   const providerError = extractProviderError(payload, logs);
   console.log("[fal-webhook] received", {
     requestId,
