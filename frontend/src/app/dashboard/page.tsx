@@ -2394,8 +2394,7 @@ export default function Dashboard() {
           </form>
         </section>
 
-        <footer className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>Need help? Hop into our Discord.</span>
+        <footer className="mt-6 flex justify-end">
           <a
             href="https://discord.gg/j7suXuYEnB"
             target="_blank"
