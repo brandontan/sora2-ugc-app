@@ -93,6 +93,9 @@ alter table public.jobs
 alter table public.jobs
   add column if not exists provider_error text;
 
+alter table public.jobs
+  add column if not exists provider_last_checked timestamptz;
+
 -- Auto-update updated_at on jobs
 create or replace function public.set_jobs_updated_at()
 returns trigger

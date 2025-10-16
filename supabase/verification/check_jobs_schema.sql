@@ -18,6 +18,7 @@ select id,
        provider_status,
        queue_position,
        provider_error,
+       provider_last_checked,
        updated_at
 from public.jobs
 order by updated_at desc

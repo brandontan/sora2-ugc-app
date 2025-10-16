@@ -27,7 +27,7 @@
 
 ## Supabase Schema Validation
 - Run `supabase/verification/check_jobs_schema.sql` in Supabase SQL editor post-migration.
-- Confirm `updated_at`, `provider_status`, `queue_position`, `provider_error` columns exist and `relrowsecurity` is true.
+- Confirm `updated_at`, `provider_status`, `queue_position`, `provider_error`, `provider_last_checked` columns exist and `relrowsecurity` is true.
 - Spot-check Stripe audit tables: `select count(*) from stripe_checkout_sessions;` to ensure logging is active.
 
 ## Secrets Rotation
