@@ -9,6 +9,7 @@ import { AdminJobsDashboard } from "./page.client";
 type JobRow = {
   id: string;
   user_id: string;
+  user_display_name: string | null;
   status: string;
   prompt: string | null;
   video_url: string | null;
@@ -117,6 +118,7 @@ export default async function AdminJobsPage() {
     return {
       id: String(job.id ?? ""),
       user_id: String(job.user_id ?? ""),
+      user_display_name: null,
       status: String(job.status ?? "unknown"),
       prompt: typeof job.prompt === "string" ? job.prompt : null,
       video_url: typeof job.video_url === "string" ? job.video_url : null,
@@ -148,11 +150,45 @@ export default async function AdminJobsPage() {
     };
   });
 
+  const userIds = Array.from(
+    new Set(jobs.map((job) => job.user_id).filter((value) => value.length > 0)),
+  );
+
+  const profileLookup = new Map<string, { display_name: string | null }>();
+  if (userIds.length > 0) {
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, display_name")
+      .in("id", userIds);
+
+    if (!profileError && Array.isArray(profileRows)) {
+      profileRows.forEach((record) => {
+        const profile = record as Record<string, unknown>;
+        const id =
+          typeof profile.id === "string" && profile.id.length > 0
+            ? profile.id
+            : null;
+        if (!id) return;
+        profileLookup.set(id, {
+          display_name:
+            typeof profile.display_name === "string"
+              ? profile.display_name
+              : null,
+        });
+      });
+    }
+  }
+
+  const enrichedJobs = jobs.map((job) => ({
+    ...job,
+    user_display_name: profileLookup.get(job.user_id)?.display_name ?? null,
+  }));
+
   const generatedAt = new Date().toISOString();
 
   return (
     <AdminJobsDashboard
-      jobs={jobs}
+      jobs={enrichedJobs}
       generatedAt={generatedAt}
       limit={DEFAULT_LIMIT}
     />

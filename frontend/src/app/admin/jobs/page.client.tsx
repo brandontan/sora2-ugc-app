@@ -38,6 +38,7 @@ ChartJS.register(
 type AdminJob = {
   id: string;
   user_id: string;
+  user_display_name: string | null;
   status: string;
   prompt: string | null;
   video_url: string | null;
@@ -111,7 +112,7 @@ const ACTIVE_CANONICAL_STATUSES = new Set<CanonicalStatus>([
 ]);
 
 const PROVIDER_LABELS: Record<string, string> = {
-  fal: "fal.ai",
+  fal: "FAL.ai",
 };
 
 const STATUS_COLORS: Record<CanonicalStatus, string> = {
@@ -727,7 +728,7 @@ export function AdminJobsDashboard({
                 Job Details
               </h2>
               <p className="text-sm text-muted-foreground">
-                Sorted by newest first. IDs are truncated.
+                Sorted by newest first. Full IDs shown for quick copy.
               </p>
             </div>
           </div>
@@ -738,7 +739,6 @@ export function AdminJobsDashboard({
                   <th className="px-4 py-3 text-left">Job ID</th>
                   <th className="px-4 py-3 text-left">Provider</th>
                   <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-left">Queue Pos.</th>
                   <th className="px-4 py-3 text-left">Updated</th>
                   <th className="px-4 py-3 text-left">Provider Status</th>
                   <th className="px-4 py-3 text-left">User</th>
@@ -753,12 +753,18 @@ export function AdminJobsDashboard({
                   >
                     <td className="px-4 py-3 text-muted-foreground/90">
                       <div className="flex flex-col gap-1">
-                        <span className="font-mono text-xs">
-                          {(job.displayId ?? job.id).slice(0, 12)}
+                        <span
+                          className="font-mono text-xs break-all"
+                          title={job.id}
+                        >
+                          {job.id}
                         </span>
                         {job.provider_job_id ? (
-                          <span className="font-mono text-[0.65rem] text-muted-foreground/60">
-                            local {job.id.slice(0, 8)}
+                          <span
+                            className="font-mono text-[0.65rem] text-muted-foreground/60 break-all"
+                            title={job.provider_job_id}
+                          >
+                            provider {job.provider_job_id}
                           </span>
                         ) : null}
                       </div>
@@ -793,11 +799,6 @@ export function AdminJobsDashboard({
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {typeof job.queue_position === "number"
-                        ? `#${job.queue_position}`
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3">
                       {formatRelativeTime(job.lastUpdateISO)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
@@ -808,8 +809,10 @@ export function AdminJobsDashboard({
                         </div>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {job.user_id.slice(0, 8)}
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {job.user_display_name?.trim().length
+                        ? job.user_display_name
+                        : job.user_id.slice(0, 8)}
                     </td>
                     <td className="px-4 py-3">
                       {job.video_url ? (
@@ -867,11 +870,7 @@ export function AdminJobsDashboard({
                     <span>{statusLabel(job.canonicalStatus)}</span>
                   </div>
                   <div className="mt-2 text-rose-100/70">
-                    Last update {formatRelativeTime(job.lastUpdateISO)} |
-                    Queue position{" "}
-                    {typeof job.queue_position === "number"
-                      ? `#${job.queue_position}`
-                      : "unknown"}
+                    Last update {formatRelativeTime(job.lastUpdateISO)}
                   </div>
                   {job.provider_error ? (
                     <div className="mt-2 rounded-xl bg-rose-500/20 px-3 py-2 text-xs text-rose-50/80">
