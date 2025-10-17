@@ -291,6 +291,8 @@ const isActiveStatus = (status: string) => ACTIVE_JOB_STATUSES.has(normalizeStat
 const isTrayStatus = (status: string) =>
   isActiveStatus(status) || isFinalStatus(status);
 
+const ACTIVE_REFRESH_INTERVAL_MS = 8000;
+
 const formatRelativeTime = (iso: string | null | undefined): string => {
   if (!iso) return "just now";
   const timestamp = Date.parse(iso);
@@ -1270,6 +1272,28 @@ export default function Dashboard() {
       void client.removeChannel(jobsChannel);
     };
   }, [refreshBalance, refreshJobs, session?.user?.id, supabase]);
+
+  useEffect(() => {
+    if (activeTrayJobs.length === 0) {
+      return;
+    }
+
+    let isRefreshing = false;
+    const tick = () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      void refreshJobs().finally(() => {
+        isRefreshing = false;
+      });
+    };
+
+    const intervalId = window.setInterval(tick, ACTIVE_REFRESH_INTERVAL_MS);
+    tick();
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeTrayJobs.length, refreshJobs]);
 
   const setValidationError = useCallback((message: string) => {
     setMessageTone("error");
