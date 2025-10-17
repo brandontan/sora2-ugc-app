@@ -225,14 +225,6 @@ export async function POST(request: NextRequest) {
   const canonicalAssetPath = getCanonicalAssetPath(normalizedAssets);
 
   const creditCost = selectedModelConfig.creditCost ?? CREDIT_COST_STANDARD;
-  console.log("[sora-job] incoming", {
-    userToken: token.slice(0, 16),
-    durationSeconds,
-    model: requestedModel,
-    aspectRatio: requestedAspectRatio,
-    creditCost,
-    provider,
-  });
   const automationSecret = process.env.AUTOMATION_SECRET;
   const isAutomation =
     automationSecret &&
