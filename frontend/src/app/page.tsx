@@ -10,10 +10,10 @@ export default function Home() {
   const { supabase, session, loading, isAdmin } = useSupabase();
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [emailRequestState, setEmailRequestState] = useState<
-    "idle" | "sending" | "sent" | "error"
+  const [emailSubmitState, setEmailSubmitState] = useState<
+    "idle" | "submitting" | "sent" | "error"
   >("idle");
-  const [message, setMessage] = useState("");
+  const [statusNotice, setStatusNotice] = useState("");
   const [phase, setPhase] = useState<"email" | "otp">("email");
   const [otp, setOtp] = useState("");
   const [otpStatus, setOtpStatus] = useState<"idle" | "verifying" | "error">("idle");
@@ -24,27 +24,27 @@ export default function Home() {
   const handleMagicLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email) {
-      setEmailRequestState("error");
-      setMessage("Drop an email so we can send the link.");
+      setEmailSubmitState("error");
+      setStatusNotice("Drop an email so we can email you the link.");
       return;
     }
     if (!supabase) {
-      setEmailRequestState("error");
-      setMessage("Supabase client not ready. Refresh and try again.");
+      setEmailSubmitState("error");
+                      setStatusNotice("Supabase client not ready. Refresh and try again.");
       return;
     }
-    setEmailRequestState("sending");
-    setMessage("");
+    setEmailSubmitState("submitting");
+    setStatusNotice("");
     const { error } = await supabase.auth.signInWithOtp({
       email,
     });
     if (error) {
-      setEmailRequestState("error");
-      setMessage(error.message);
+      setEmailSubmitState("error");
+      setStatusNotice(error.message);
       return;
     }
-    setEmailRequestState("sent");
-    setMessage("Check your inbox for the magic link. Enter the 6-digit code below to finish signing in.");
+    setEmailSubmitState("sent");
+    setStatusNotice("Check your inbox for the magic link. Enter the 6-digit code below to finish signing in.");
 
     if (process.env.NEXT_PUBLIC_SUPABASE_USE_MOCK === "true") {
       router.push("/dashboard");
@@ -62,25 +62,25 @@ export default function Home() {
 
     if (!email) {
       setOtpStatus("error");
-      setMessage("Enter the email used for the code.");
+      setStatusNotice("Enter the email used for the code.");
       return;
     }
 
     const token = otp.replace(/\s+/g, "");
     if (!token) {
       setOtpStatus("error");
-      setMessage("Add the 6-digit code from your inbox.");
+      setStatusNotice("Add the 6-digit code from your inbox.");
       return;
     }
 
     if (!supabase) {
       setOtpStatus("error");
-      setMessage("Supabase client not ready. Refresh and try again.");
+      setStatusNotice("Supabase client not ready. Refresh and try again.");
       return;
     }
 
     setOtpStatus("verifying");
-    setMessage("");
+    setStatusNotice("");
 
     const { error } = await supabase.auth.verifyOtp({
       email,
@@ -90,12 +90,12 @@ export default function Home() {
 
     if (error) {
       setOtpStatus("error");
-      setMessage(error.message ?? "Code invalid or expired. Resend to try again.");
+      setStatusNotice(error.message ?? "Code invalid or expired. Resend to try again.");
       return;
     }
 
     setOtpStatus("idle");
-    setMessage("Signed in. Redirecting to your dashboard…");
+                      setStatusNotice("Signed in. Redirecting to your dashboard…");
     setPhase("email");
     router.push("/dashboard");
   };
@@ -160,9 +160,9 @@ export default function Home() {
                 <button
                   type="submit"
                   className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted"
-                  disabled={emailRequestState === "sending"}
+                  disabled={emailSubmitState === "submitting"}
                 >
-                  {emailRequestState === "sending" ? "Sending magic link…" : "Email me a link"}
+                  {emailSubmitState === "submitting" ? "Requesting magic link…" : "Email me a link"}
                 </button>
               </form>
             )}
@@ -201,10 +201,10 @@ export default function Home() {
                     type="button"
                     onClick={() => {
                       setPhase("email");
-                      setEmailRequestState("idle");
+                      setEmailSubmitState("idle");
                       setOtpStatus("idle");
                       setOtp("");
-                      setMessage("");
+                      setStatusNotice("");
                       setTimeout(() => formRef.current?.querySelector<HTMLInputElement>("input")?.focus(), 0);
                     }}
                     className="w-full rounded-2xl border border-border/60 px-4 py-3 text-sm font-semibold text-muted-foreground transition hover:border-border hover:text-foreground"
@@ -214,13 +214,13 @@ export default function Home() {
                 </div>
               </form>
             )}
-            {message && (
+            {statusNotice && (
               <p
                 className={`mt-4 text-sm ${
-                  emailRequestState === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
+                  emailSubmitState === "error" || otpStatus === "error" ? "text-red-400" : "text-primary"
                 }`}
               >
-                {message}
+                {statusNotice}
               </p>
             )}
           </div>

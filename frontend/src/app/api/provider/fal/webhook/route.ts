@@ -1,27 +1,34 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/service-client";
 
-type FalWebhookPayload = {
-  request_id?: string;
-  requestId?: string;
-  id?: string;
-  status?: string;
-  state?: string;
-  phase?: string;
-  queue_position?: number;
-  queue?: { position?: number };
-  logs?: unknown;
-  error?: unknown;
-  message?: unknown;
-  video?: Record<string, unknown> | null;
-  video_url?: string;
-  videoUrl?: string;
-  download_url?: string;
-  downloadUrl?: string;
-  output?: Record<string, unknown> | null;
-  response?: Record<string, unknown> | null;
-  data?: unknown;
-};
+const FalWebhookPayloadSchema = z.object({
+  request_id: z.string().optional(),
+  requestId: z.string().optional(),
+  id: z.string().optional(),
+  status: z.string().optional(),
+  state: z.string().optional(),
+  phase: z.string().optional(),
+  queue_position: z.union([z.number(), z.string()]).optional(),
+  queue: z
+    .object({
+      position: z.union([z.number(), z.string()]).optional(),
+    })
+    .optional(),
+  logs: z.unknown().optional(),
+  error: z.unknown().optional(),
+  message: z.unknown().optional(),
+  video: z.record(z.string(), z.unknown()).nullable().optional(),
+  video_url: z.string().optional(),
+  videoUrl: z.string().optional(),
+  download_url: z.string().optional(),
+  downloadUrl: z.string().optional(),
+  output: z.record(z.string(), z.unknown()).nullable().optional(),
+  response: z.record(z.string(), z.unknown()).nullable().optional(),
+  data: z.unknown().optional(),
+});
+
+type FalWebhookPayload = z.infer<typeof FalWebhookPayloadSchema>;
 
 type JobRow = {
   id: string;
@@ -163,11 +170,9 @@ const mapToCanonicalStatus = (
 };
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.text();
-
-  let payload: FalWebhookPayload;
+  let json: unknown;
   try {
-    payload = JSON.parse(rawBody) as FalWebhookPayload;
+    json = await request.json();
   } catch (error) {
     console.error("[fal-webhook] invalid json", error);
     return NextResponse.json(
@@ -175,6 +180,17 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  const payloadResult = FalWebhookPayloadSchema.safeParse(json);
+  if (!payloadResult.success) {
+    console.error("[fal-webhook] payload schema validation failed", payloadResult.error.flatten());
+    return NextResponse.json(
+      { error: { message: "Invalid payload structure" } },
+      { status: 400 },
+    );
+  }
+
+  const payload = payloadResult.data;
 
   const requestId =
     payload.request_id || payload.requestId || payload.id || null;
