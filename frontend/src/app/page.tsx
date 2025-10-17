@@ -147,6 +147,21 @@ export default function Home() {
           </div>
         </div>
 
+        <section className="mt-12 w-full max-w-4xl">
+          <div className="rounded-[28px] border border-border/60 bg-background/60 p-4 shadow-2xl">
+            <div className="aspect-video w-full overflow-hidden rounded-2xl">
+              <iframe
+                title="GenVids Fast walkthrough"
+                src="https://www.loom.com/embed/e6b5f62cad244ab988d3a26740742598"
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </section>
+
         <div className="relative mt-16 w-full max-w-xl">
           <div className="absolute -inset-[2px] rounded-[30px] bg-gradient-to-br from-primary/50 via-indigo-500/30 to-fuchsia-500/20 blur-[70px]" />
           <div className="relative glass-surface rounded-[28px] p-8 text-left shadow-2xl">
