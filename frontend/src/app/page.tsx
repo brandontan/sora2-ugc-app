@@ -131,6 +131,20 @@ export default function Home() {
               </button>
             </div>
           ) : null}
+          <div className="mt-8 grid gap-4 text-left text-sm text-muted-foreground sm:grid-cols-2 sm:text-base">
+            <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+              <p className="text-base font-semibold text-foreground">No subscriptions</p>
+              <p className="mt-2 leading-relaxed">
+                Pay only when you generate. Unlock production-quality videos without long-term contracts or hidden fees.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+              <p className="text-base font-semibold text-foreground">Promotional launch rate</p>
+              <p className="mt-2 leading-relaxed">
+                Grab 75 credits for just <span className="font-semibold text-primary">$20</span> while the offer lasts. Enough for dozens of standout clips.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="relative mt-16 w-full max-w-xl">
