@@ -712,6 +712,33 @@ export default function Dashboard() {
     [trayTab, activeTrayJobs, historyTrayJobs],
   );
 
+  const previousActiveCount = useRef(activeTrayJobs.length);
+  const previousHistoryCount = useRef(historyTrayJobs.length);
+  const didInitializeTrayCounts = useRef(false);
+
+  useEffect(() => {
+    const activeCount = activeTrayJobs.length;
+    const historyCount = historyTrayJobs.length;
+
+    if (!didInitializeTrayCounts.current) {
+      didInitializeTrayCounts.current = true;
+      previousActiveCount.current = activeCount;
+      previousHistoryCount.current = historyCount;
+      return;
+    }
+
+    const activeEmptied =
+      previousActiveCount.current > 0 && activeCount === 0;
+    const historyGrew = historyCount > previousHistoryCount.current;
+
+    if (trayTab === "active" && activeEmptied && historyGrew) {
+      setTrayTab("history");
+    }
+
+    previousActiveCount.current = activeCount;
+    previousHistoryCount.current = historyCount;
+  }, [activeTrayJobs.length, historyTrayJobs.length, trayTab]);
+
   useEffect(() => {
     if (focusedJobId && !jobs.some((job) => job.id === focusedJobId)) {
       setFocusedJobId(undefined);
