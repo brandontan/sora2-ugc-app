@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="spark-gradient" x1="16" y1="10" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B693FF"/>
+      <stop offset="1" stop-color="#704CFF"/>
+    </linearGradient>
+  </defs>
+  <path
+    d="M32 6l6.5 13.5L52 21l-10 9.5L44.5 46 32 38.5 19.5 46 22 30.5 12 21l13.5-1.5L32 6z"
+    fill="url(#spark-gradient)"/>
+  <path
+    d="M32 14l4.4 9.1 10.1 1.1-7.4 7 1.8 10.3L32 36.2 21.1 41.5 22.9 31.2 15.5 24.2l10.1-1.1L32 14z"
+    fill="#CBB4FF"/>
+  <circle cx="17.5" cy="47" r="5" fill="#8C64FF"/>
+</svg>

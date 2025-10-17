@@ -11,6 +11,9 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "GenVids Fast | Sora UGC",
   description: "Upload a product, describe the vibe, get a Sora video in minutes.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
