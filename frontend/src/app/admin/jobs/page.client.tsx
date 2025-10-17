@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition, useCallback } from "react";
+import {
+  useMemo,
+  useState,
+  useTransition,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -14,7 +21,7 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { RefreshCcw, ChevronRight, Check } from "lucide-react";
+import { RefreshCcw, ChevronRight, Check, Copy } from "lucide-react";
 
 const Bar = dynamic(
   () => import("react-chartjs-2").then((mod) => mod.Bar),
@@ -130,6 +137,8 @@ const PROVIDER_COLORS: Record<string, string> = {
   unknown: "#a855f7",
 };
 
+const SEARCH_DEBOUNCE_MS = 150;
+
 const BUCKET_INTERVAL_MINUTES = 15;
 const STUCK_THRESHOLD_MINUTES = 15;
 
@@ -149,6 +158,13 @@ const formatRelativeTime = (iso: string) => {
   if (diffHours < 24) return pluralize(diffHours, "hour") + " ago";
   const diffDays = Math.floor(diffHours / 24);
   return pluralize(diffDays, "day") + " ago";
+};
+
+const formatAbsoluteTime = (iso?: string | null) => {
+  if (!iso) return "—";
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return "—";
+  return new Date(timestamp).toLocaleString();
 };
 
 const formatBucketLabel = (timestamp: number) => {
@@ -254,6 +270,32 @@ const deriveLastUpdate = (job: AdminJob) =>
   job.provider_last_checked ??
   job.created_at;
 
+const minutesSinceIso = (iso: string | null | undefined) => {
+  if (!iso) return null;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return null;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 1000 / 60));
+};
+
+const jobMatchesSearch = (job: EnrichedJob, needle: string) => {
+  if (!needle) return true;
+  const fields: Array<string | null | undefined> = [
+    job.id,
+    job.displayId,
+    job.provider_job_id,
+    job.provider,
+    job.provider_status,
+    job.providerStateText,
+    job.prompt,
+    job.user_display_name,
+  ];
+  return fields.some(
+    (value) =>
+      typeof value === "string" &&
+      value.toLowerCase().includes(needle),
+  );
+};
+
 const enrichJobs = (jobs: AdminJob[]): EnrichedJob[] =>
   jobs.map((job) => {
     const normalizedStatus = job.status.toLowerCase();
@@ -293,12 +335,66 @@ export function AdminJobsDashboard({
 }: AdminJobsDashboardProps) {
   const router = useRouter();
   const [isRefreshing, startTransition] = useTransition();
+  const [searchValue, setSearchValue] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedProviders, setSelectedProviders] = useState<string[] | null>(
     null,
   );
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[] | null>(
     null,
   );
+  const copyTimeoutRef = useRef<number | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedSearch(searchValue.trim().toLowerCase());
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [searchValue]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(async (value: string, key: string) => {
+    const performCopy = async () => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+      const temp = document.createElement("textarea");
+      temp.value = value;
+      temp.setAttribute("readonly", "");
+      temp.style.position = "fixed";
+      temp.style.opacity = "0";
+      document.body.appendChild(temp);
+      temp.select();
+      temp.setSelectionRange(0, temp.value.length);
+      document.execCommand("copy");
+      document.body.removeChild(temp);
+    };
+
+    try {
+      await performCopy();
+      setCopiedKey(key);
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = window.setTimeout(() => {
+        setCopiedKey(null);
+      }, 1500);
+    } catch (error) {
+      console.error("[admin/jobs] copy failed", error);
+      setCopiedKey(null);
+    }
+  }, []);
 
   const enrichedJobs = useMemo(() => enrichJobs(jobs), [jobs]);
 
@@ -317,17 +413,33 @@ export function AdminJobsDashboard({
   const activeProviderFilters = selectedProviders ?? providerOptions;
   const activeStatusFilters = selectedStatuses ?? statusOptions;
 
-  const filteredJobs = useMemo(
-    () =>
-      enrichedJobs.filter(
-        (job) => {
-          if (!activeProviderFilters.includes(job.providerKey)) return false;
-          if (activeStatusFilters.includes("stuck") && job.isStuck) return true;
-          return activeStatusFilters.includes(job.canonicalStatus);
-        },
-      ),
-    [enrichedJobs, activeProviderFilters, activeStatusFilters],
-  );
+  const filteredJobs = useMemo(() => {
+    const needle = debouncedSearch;
+    return enrichedJobs.filter((job) => {
+      if (!activeProviderFilters.includes(job.providerKey)) {
+        return false;
+      }
+
+      const statusMatches =
+        (activeStatusFilters.includes("stuck") && job.isStuck) ||
+        activeStatusFilters.includes(job.canonicalStatus);
+
+      if (!statusMatches) {
+        return false;
+      }
+
+      if (!needle) {
+        return true;
+      }
+
+      return jobMatchesSearch(job, needle);
+    });
+  }, [
+    enrichedJobs,
+    activeProviderFilters,
+    activeStatusFilters,
+    debouncedSearch,
+  ]);
 
   const availableStatuses = useMemo(() => {
     const unique = new Set<CanonicalStatus>();
@@ -497,6 +609,8 @@ export function AdminJobsDashboard({
   const resetFilters = () => {
     setSelectedProviders(null);
     setSelectedStatuses(null);
+    setSearchValue("");
+    setDebouncedSearch("");
   };
 
   const formatNumber = (value: number) =>
@@ -628,6 +742,23 @@ export function AdminJobsDashboard({
             </button>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <label
+                htmlFor="jobs-search"
+                className="text-xs uppercase tracking-[0.25em] text-muted-foreground/80"
+              >
+                Search
+              </label>
+              <input
+                id="jobs-search"
+                type="search"
+                value={searchValue}
+                onChange={(event) => setSearchValue(event.target.value)}
+                placeholder="Job ID, provider ID, prompt, user…"
+                className="rounded-2xl border border-border/40 bg-background/40 px-4 py-2 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                aria-label="Search jobs"
+              />
+            </div>
             <FilterGroup
               label="Providers"
               options={providerOptions}
@@ -636,14 +767,16 @@ export function AdminJobsDashboard({
               formatter={providerLabel}
               baseColor="bg-secondary"
             />
-            <FilterGroup
-              label="Statuses"
-              options={statusOptions}
-              activeOptions={activeStatusFilters}
-              onToggle={(value) => toggleStatus(value as StatusFilter)}
-              formatter={statusLabel}
-              baseColor="bg-secondary"
-            />
+            <div className="lg:col-span-2">
+              <FilterGroup
+                label="Statuses"
+                options={statusOptions}
+                activeOptions={activeStatusFilters}
+                onToggle={(value) => toggleStatus(value as StatusFilter)}
+                formatter={statusLabel}
+                baseColor="bg-secondary"
+              />
+            </div>
           </div>
         </section>
 
@@ -746,91 +879,143 @@ export function AdminJobsDashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-900/70 text-sm">
-                {filteredJobs.map((job) => (
-                  <tr
-                    key={job.id}
-                    className={`${job.isStuck ? "bg-rose-500/10" : "hover:bg-secondary/40"} transition`}
-                  >
-                    <td className="px-4 py-3 text-muted-foreground/90">
-                      <div className="flex flex-col gap-1">
-                        <span
-                          className="font-mono text-xs break-all"
-                          title={job.id}
-                        >
-                          {job.id}
-                        </span>
-                        {job.provider_job_id ? (
-                          <span
-                            className="font-mono text-[0.65rem] text-muted-foreground/60 break-all"
-                            title={job.provider_job_id}
-                          >
-                            provider {job.provider_job_id}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{
-                            backgroundColor:
-                              PROVIDER_COLORS[job.providerKey] ??
-                              "rgba(148, 163, 184, 0.8)",
-                          }}
-                        />
-                        {providerLabel(job.providerKey)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
-                        style={{
-                          backgroundColor: `${(
-                            STATUS_COLORS[job.canonicalStatus] ??
-                            "rgba(148, 163, 184, 0.2)"
-                          )}33`,
-                          color:
-                            STATUS_COLORS[job.canonicalStatus] ??
-                            "#f9fafb",
-                        }}
-                      >
-                        {statusLabel(job.canonicalStatus)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {formatRelativeTime(job.lastUpdateISO)}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      <div>{job.providerStateText}</div>
-                      {job.provider_error && job.providerStateText?.toLowerCase().includes("failed") === false ? (
-                        <div className="mt-1 text-xs text-rose-300/80">
-                          {job.provider_error}
+                {filteredJobs.map((job) => {
+                  const jobCopyKey = `job-${job.id}`;
+                  const providerCopyKey = `provider-${job.id}`;
+                  return (
+                    <tr
+                      key={job.id}
+                      className={`${job.isStuck ? "bg-rose-500/10" : "hover:bg-secondary/40"} transition`}
+                    >
+                      <td className="px-4 py-3 text-muted-foreground/90">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className="font-mono text-xs break-all"
+                              title={job.id}
+                            >
+                              {job.id}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleCopy(job.id, jobCopyKey)}
+                              aria-label="Copy job ID"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/40 text-muted-foreground transition hover:border-border hover:text-white focus:outline-none focus:ring-2 focus:ring-primary/60"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            {copiedKey === jobCopyKey ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[0.65rem] font-medium text-emerald-200"
+                                role="status"
+                              >
+                                <Check className="h-3 w-3" />
+                                Copied
+                              </span>
+                            ) : null}
+                          </div>
+                          {job.provider_job_id ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className="font-mono text-[0.65rem] text-muted-foreground/60 break-all"
+                                title={job.provider_job_id}
+                              >
+                                provider {job.provider_job_id}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleCopy(job.provider_job_id as string, providerCopyKey)
+                                }
+                                aria-label="Copy provider job ID"
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/40 text-muted-foreground transition hover:border-border hover:text-white focus:outline-none focus:ring-2 focus:ring-primary/60"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                              {copiedKey === providerCopyKey ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[0.65rem] font-medium text-emerald-200"
+                                  role="status"
+                                >
+                                  <Check className="h-3 w-3" />
+                                  Copied
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {job.user_display_name?.trim().length
-                        ? job.user_display_name
-                        : job.user_id.slice(0, 8)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {job.video_url ? (
-                        <a
-                          href={job.video_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-medium text-accent-foreground hover:text-white"
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{
+                              backgroundColor:
+                                PROVIDER_COLORS[job.providerKey] ??
+                                "rgba(148, 163, 184, 0.8)",
+                            }}
+                          />
+                          {providerLabel(job.providerKey)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+                          style={{
+                            backgroundColor: `${(
+                              STATUS_COLORS[job.canonicalStatus] ??
+                              "rgba(148, 163, 184, 0.2)"
+                            )}33`,
+                            color:
+                              STATUS_COLORS[job.canonicalStatus] ??
+                              "#f9fafb",
+                          }}
                         >
-                          View
-                          <ChevronRight className="h-3 w-3" />
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                          {statusLabel(job.canonicalStatus)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>{formatRelativeTime(job.lastUpdateISO)}</div>
+                        <div className="text-[0.65rem] text-muted-foreground/70">
+                          {formatAbsoluteTime(job.lastUpdateISO)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <div>{job.providerStateText}</div>
+                        {job.provider_last_checked ? (
+                          <div className="text-[0.65rem] text-muted-foreground/70">
+                            Checked {formatAbsoluteTime(job.provider_last_checked)}
+                          </div>
+                        ) : null}
+                        {job.provider_error && job.providerStateText?.toLowerCase().includes("failed") === false ? (
+                          <div className="mt-1 text-xs text-rose-300/80">
+                            {job.provider_error}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {job.user_display_name?.trim().length
+                          ? job.user_display_name
+                          : job.user_id.slice(0, 8)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {job.video_url ? (
+                          <a
+                            href={job.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-accent-foreground hover:text-white"
+                          >
+                            View
+                            <ChevronRight className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -855,30 +1040,41 @@ export function AdminJobsDashboard({
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {stuckJobsFiltered.map((job) => (
-                <li
-                  key={`stuck-${job.id}`}
-                  className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100/90"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs text-rose-200/80">
-                      {(job.displayId ?? job.id).slice(0, 10)}
-                    </span>
-                    <span>•</span>
-                    <span>{providerLabel(job.providerKey)}</span>
-                    <span>•</span>
-                    <span>{statusLabel(job.canonicalStatus)}</span>
-                  </div>
-                  <div className="mt-2 text-rose-100/70">
-                    Last update {formatRelativeTime(job.lastUpdateISO)}
-                  </div>
-                  {job.provider_error ? (
-                    <div className="mt-2 rounded-xl bg-rose-500/20 px-3 py-2 text-xs text-rose-50/80">
-                      {job.provider_error}
+              {stuckJobsFiltered.map((job) => {
+                const staleMinutes = minutesSinceIso(job.lastUpdateISO);
+                return (
+                  <li
+                    key={`stuck-${job.id}`}
+                    className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100/90"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-rose-200/80">
+                        {(job.displayId ?? job.id).slice(0, 10)}
+                      </span>
+                      <span>•</span>
+                      <span>{providerLabel(job.providerKey)}</span>
+                      <span>•</span>
+                      <span>{statusLabel(job.canonicalStatus)}</span>
                     </div>
-                  ) : null}
-                </li>
-              ))}
+                    <div className="mt-2 text-rose-100/70">
+                      Last update {formatRelativeTime(job.lastUpdateISO)}
+                      {typeof staleMinutes === "number" ? (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-rose-500/30 px-2 py-0.5 text-[0.65rem] font-medium text-rose-50/90">
+                          {staleMinutes}m stale
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[0.65rem] text-rose-100/60">
+                      {formatAbsoluteTime(job.lastUpdateISO)}
+                    </div>
+                    {job.provider_error ? (
+                      <div className="mt-2 rounded-xl bg-rose-500/20 px-3 py-2 text-xs text-rose-50/80">
+                        {job.provider_error}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

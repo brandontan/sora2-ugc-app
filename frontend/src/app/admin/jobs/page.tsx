@@ -184,6 +184,19 @@ export default async function AdminJobsPage() {
     user_display_name: profileLookup.get(job.user_id)?.display_name ?? null,
   }));
 
+  try {
+    await supabase.from("admin_audit_logs").insert({
+      user_id: user.id,
+      email: user.email ?? null,
+      path: "/admin/jobs",
+      metadata: {
+        jobCount: jobs.length,
+      },
+    });
+  } catch (auditError) {
+    console.error("[admin/jobs] audit insert failed", auditError);
+  }
+
   const generatedAt = new Date().toISOString();
 
   return (
