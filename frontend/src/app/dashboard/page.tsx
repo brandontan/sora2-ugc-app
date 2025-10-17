@@ -1222,10 +1222,27 @@ export default function Dashboard() {
       )
       .subscribe();
 
+    const jobsChannel = client
+      .channel(`jobs:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "jobs",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshJobs();
+        },
+      )
+      .subscribe();
+
     return () => {
       void client.removeChannel(balanceChannel);
+      void client.removeChannel(jobsChannel);
     };
-  }, [refreshBalance, session?.user?.id, supabase]);
+  }, [refreshBalance, refreshJobs, session?.user?.id, supabase]);
 
   const setValidationError = useCallback((message: string) => {
     setMessageTone("error");
